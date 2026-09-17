@@ -1,0 +1,114 @@
+name: Build Xiaomi 11T Pro Custom Kernel
+
+on:
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean Environment & Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools nix-config git zip unzip libncurses5-dev ccache
+
+      - name: Fetch and Extract Target AOSP Clang Toolchain
+        run: |
+          mkdir clang
+          cd clang
+          wget https://googlesource.com
+          tar -zxf clang-r530567.tar.gz
+          echo "$(pwd)/bin" >> $GITHUB_PATH
+          cd ..
+
+      - name: Shallow Clone Forked Next-Gen Kernel Tree
+        run: |
+          git clone --depth=1 https://github.com -b main kernel-source
+          
+      - name: Apply Defconfig Parameters for HyperOS & MIUI
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export HEADER_ARCH=arm64
+          
+          # Initialize the base configuration framework
+          make O=out vili_defconfig
+          
+          # Inject the custom local version name directly into the build configurations
+          sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-Next-Gen"/g' out/.config || echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> out/.config
+          
+          # Append essential framework parameters directly into the compilation manifest
+          echo "CONFIG_EROFS_FS=y" >> out/.config
+          echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
+          echo "CONFIG_CGROUP_BPF=y" >> out/.config
+          echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
+          
+      - name: Compile Target Kernel Binary
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export HEADER_ARCH=arm64
+          
+          make O=out \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            -j$(nproc)
+            
+      - name: Assemble Packaging Framework via AnyKernel3
+        run: |
+          git clone https://github.com anykernel
+          cd anykernel
+          
+          # Locate and copy the generated binary output
+          if [ -f ../kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
+          elif [ -f ../kernel-source/out/arch/arm64/boot/Image ]; then
+            cp ../kernel-source/out/arch/arm64/boot/Image .
+          else
+            echo "Error: Compiled kernel binary not found." && exit 1
+          fi
+          
+          # Build a dynamic parsing script branded as Next-Gen for multi-Android support
+          cat << 'EOF' > anykernel.sh
+          # AnyKernel3 Setup
+          properties() { '
+          kernel.string=Next-Gen Kernel for Xiaomi 11T Pro (vili) - Unified Build
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=1
+          device.name1=vili
+          device.name2=vili_global
+          supported.versions=11 - 17
+          '; }
+          
+          # Dynamic routing to intercept Android 11-13 (boot) vs Android 14-17 (init_boot) partitions
+          if [ -e /dev/block/by-name/init_boot ]; then
+            block=/dev/block/by-name/init_boot;
+            is_slot_device=1;
+          else
+            block=/dev/block/bootdevice/by-name/boot;
+            is_slot_device=1;
+          fi;
+          
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          split_boot;
+          flash_boot;
+          EOF
+          
+          # Compress everything into a recovery-ready flashable zip archive container
+          zip -r9 ../Next-Gen-Kernel-Vili.zip * -x .git README.md
+
+      - name: Save Flashable Kernel Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Next-Gen-Kernel-Flashable
+          path: Next-Gen-Kernel-Vili.zip
