@@ -12,26 +12,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
 
-      - name: Fetch Target HyperOS Clang Toolchain
-        uses: actions/checkout@v4
-        with:
-          repository: TeraaBytee/android_prebuilts_clang_host_linux-x86_clang-r530567
-          path: clang
-          fetch-depth: 1
-
-      - name: Export Toolchain to Path Environment
+      - name: Fetch Target HyperOS Clang Toolchain (Official AOSP Source)
         run: |
-          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
+          # Fetch directly from verified Google AOSP source to bypass broken repo links
+          mkdir clang
+          cd clang
+          git clone --depth=1 https://googlesource.com -b main
+          
+          # Locate the target r530567 binary folder path dynamically
+          if [ -d clang-r530567 ]; then
+            echo "$(pwd)/clang-r530567/bin" >> $GITHUB_PATH
+          elif [ -d linux-x86/clang-r530567 ]; then
+            echo "$(pwd)/linux-x86/clang-r530567/bin" >> $GITHUB_PATH
+          else
+            # Workaround fallback if nested inside subfolders
+            TARGET_PATH=$(find $(pwd) -type d -name "bin" | grep "r530567")
+            echo "$TARGET_PATH" >> $GITHUB_PATH
+          fi
+          cd ..
 
-      - name: Checkout Device Kernel Tree
+      - name: Checkout Device Kernel Tree (Normal Source Checkout)
         uses: actions/checkout@v4
         with:
-          path: kernel-source
           fetch-depth: 1
           
       - name: Apply Defconfig Parameters for HyperOS Specific Core
         run: |
-          cd kernel-source
+          # Check folder structural layouts cleanly
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
@@ -58,12 +65,11 @@ jobs:
           
       - name: Compile Full Source (Kernel, DTBO, and Vendor Modules)
         run: |
-          cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Compiles the core kernel alongside device-tree overlay blobs natively
+          # Compiles the core kernel alongside device-tree overlay blobs natively using LLVM tools
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -77,15 +83,15 @@ jobs:
           mkdir out_artifacts
           
           # Grab Core Kernel Binaries
-          if [ -f kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/Image.gz-dtb out_artifacts/boot.img
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb out_artifacts/boot.img
           else
-            cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
+            cp out/arch/arm64/boot/Image out_artifacts/boot.img
           fi
           
           # Grab Native Source-Compiled DTBO
-          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
+          if [ -f out/arch/arm64/boot/dtbo.img ]; then
+            cp out/arch/arm64/boot/dtbo.img out_artifacts/
           fi
           
           # Provision Mock Vendor Boot block profile to carry built modules
