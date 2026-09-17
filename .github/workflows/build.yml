@@ -14,7 +14,7 @@ jobs:
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Use standard cloning format to eliminate download bugs
+          # Clean, explicit URL to completely remove any runtime syntax bugs
           git clone --depth=1 https://github.com clang
           echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
