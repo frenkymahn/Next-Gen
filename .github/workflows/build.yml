@@ -10,16 +10,13 @@ jobs:
       - name: Clean Environment & Install Linux Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Downloading and extracting a stable prebuilt Clang directly via tarball to avoid git auth errors
-          mkdir -p clang
-          wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450784d.tar.gz || wget -O clang.tar.gz https://gitlab.com/LeLex09/aarch64-linux-android-droid-clang/-/raw/main/clang.tar.gz
-          tar -C clang -xzf clang.tar.gz || true
-          rm -rf clang.tar.gz
-          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
+          # Using a verified and stable public GitHub repository for AOSP Clang to bypass web server blocks
+          git clone --depth=1 https://github.com/chenxiaolong/Toolchains.git -b clang-16 clang-toolchain || git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b.git clang-toolchain
+          echo "$(pwd)/clang-toolchain/bin" >> $GITHUB_PATH
 
       - name: Checkout Device Kernel Tree
         uses: actions/checkout@v4
