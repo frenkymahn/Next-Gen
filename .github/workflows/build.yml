@@ -14,14 +14,14 @@ jobs:
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Use a direct Git clone of a pre-extracted AOSP Clang r530567 tree to eliminate download bugs
+          # Use a direct Git clone of a pre-extracted AOSP Clang r530567 tree with fixed URL layout
           git clone --depth=1 https://github.com clang
           echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Shallow Clone Forked Next-Gen Kernel Tree
         run: |
-          # Dynamically targets your current directory tree layout to avoid hardcoded domain failures
-          git clone --depth=1 "https://github.com{{ github.repository }}.git" -b main kernel-source
+          # Fixed URL cloning block to cleanly pull your forked source repository
+          git clone --depth=1 https://github.com{{ github.repository }}.git -b main kernel-source
           
       - name: Apply Defconfig Parameters with BPF & XATTR Support
         run: |
@@ -138,4 +138,3 @@ jobs:
         with:
           name: Next-Gen-Full-Source-Package
           path: Next-Gen-Complete-Source-Kernel.zip
-
