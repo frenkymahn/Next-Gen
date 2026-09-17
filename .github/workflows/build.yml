@@ -14,9 +14,13 @@ jobs:
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Using a verified and stable public GitHub repository for AOSP Clang to bypass web server blocks
-          git clone --depth=1 https://github.com/chenxiaolong/Toolchains.git -b clang-16 clang-toolchain || git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b.git clang-toolchain
-          echo "$(pwd)/clang-toolchain/bin" >> $GITHUB_PATH
+          # Download a public, verified pre-built archive to completely bypass username/password blocks
+          mkdir clang
+          cd clang
+          wget https://github.com
+          tar -zxf Clang-19.0.0-20240312-r530567.tar.gz
+          echo "$(pwd)/bin" >> $GITHUB_PATH
+          cd ..
 
       - name: Checkout Device Kernel Tree
         uses: actions/checkout@v4
@@ -90,7 +94,7 @@ jobs:
 
       - name: Pack Everything via AnyKernel3 for Automated Flashing
         run: |
-          git clone https://github.com/kernel-ris/AnyKernel3 anykernel
+          git clone https://github.com anykernel
           cd anykernel
           
           # Move Compiled source files directly into the installation target frame
