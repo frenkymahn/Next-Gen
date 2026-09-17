@@ -14,11 +14,13 @@ jobs:
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Download a public, verified pre-built archive to completely bypass username/password blocks
+          # Download pre-built Android Common Clang directly from an active stable archive release
           mkdir clang
           cd clang
-          wget https://github.com
-          tar -zxf Clang-19.0.0-20240312-r530567.tar.gz
+          wget https://github.com -O clang.zip
+          unzip -q clang.zip
+          mv android_prebuilts_clang_host_linux-x86_clang-r530567-main/* .
+          rm -rf clang.zip android_prebuilts_clang_host_linux-x86_clang-r530567-main
           echo "$(pwd)/bin" >> $GITHUB_PATH
           cd ..
 
