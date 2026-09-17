@@ -14,22 +14,9 @@ jobs:
 
       - name: Fetch Target HyperOS Clang Toolchain (Official AOSP Source)
         run: |
-          # Fetch directly from verified Google AOSP source to bypass broken repo links
-          mkdir clang
-          cd clang
-          git clone --depth=1 https://googlesource.com -b main
-          
-          # Locate the target r530567 binary folder path dynamically
-          if [ -d clang-r530567 ]; then
-            echo "$(pwd)/clang-r530567/bin" >> $GITHUB_PATH
-          elif [ -d linux-x86/clang-r530567 ]; then
-            echo "$(pwd)/linux-x86/clang-r530567/bin" >> $GITHUB_PATH
-          else
-            # Workaround fallback if nested inside subfolders
-            TARGET_PATH=$(find $(pwd) -type d -name "bin" | grep "r530567")
-            echo "$TARGET_PATH" >> $GITHUB_PATH
-          fi
-          cd ..
+          # Fixed complete and valid Clang toolchain repository URL
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b.git clang
+          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Checkout Device Kernel Tree (Normal Source Checkout)
         uses: actions/checkout@v4
@@ -99,7 +86,8 @@ jobs:
 
       - name: Pack Everything via AnyKernel3 (HyperOS Partition Standard)
         run: |
-          git clone https://github.com anykernel
+          # Fixed complete AnyKernel3 repository URL
+          git clone https://github.com/kernel-ris/AnyKernel3 anykernel
           cd anykernel
           
           # Move Compiled source files directly into the installation target frame
