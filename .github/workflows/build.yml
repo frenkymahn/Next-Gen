@@ -14,8 +14,8 @@ jobs:
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Fixed explicit URL pointing to a valid AOSP Clang toolchain repository
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b clang
+          # Fixed explicit URL pointing to a valid AOSP Clang toolchain repository with proper ending
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b.git clang
           echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Checkout Device Kernel Tree
