@@ -12,17 +12,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
 
-      - name: Fetch Target AOSP Clang Toolchain
+      - name: Fetch Target AOSP Clang Toolchain (Official Checkout Method)
+        uses: actions/checkout@v4
+        with:
+          repository: TeraaBytee/android_prebuilts_clang_host_linux-x86_clang-r530567
+          path: clang
+          fetch-depth: 1
+
+      - name: Export Toolchain to Path Environment
         run: |
-          # Download pre-built Android Common Clang directly from an active stable archive release
-          mkdir clang
-          cd clang
-          wget https://github.com -O clang.zip
-          unzip -q clang.zip
-          mv android_prebuilts_clang_host_linux-x86_clang-r530567-main/* .
-          rm -rf clang.zip android_prebuilts_clang_host_linux-x86_clang-r530567-main
-          echo "$(pwd)/bin" >> $GITHUB_PATH
-          cd ..
+          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Checkout Device Kernel Tree
         uses: actions/checkout@v4
