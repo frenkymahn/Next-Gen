@@ -12,7 +12,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
 
-      - name: Fetch Target AOSP Clang Toolchain (Official Checkout Method)
+      - name: Fetch Target HyperOS Clang Toolchain
         uses: actions/checkout@v4
         with:
           repository: TeraaBytee/android_prebuilts_clang_host_linux-x86_clang-r530567
@@ -29,7 +29,7 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Apply Defconfig Parameters with BPF & XATTR Support
+      - name: Apply Defconfig Parameters for HyperOS Specific Core
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -42,7 +42,7 @@ jobs:
           # Inject the custom local version name directly into the build configurations
           sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-Next-Gen"/g' out/.config || echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> out/.config
           
-          # Inject core eBPF framework rules for Android 14-17
+          # Inject core eBPF framework rules required for HyperOS AI tracking
           echo "CONFIG_BPF=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_BPF_JIT=y" >> out/.config
@@ -50,10 +50,8 @@ jobs:
           echo "CONFIG_CGROUP_BPF=y" >> out/.config
           echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> out/.config
           
-          # Inject requested Tmpfs Extended Attributes configuration flag
+          # Inject mandatory HyperOS security & file context system properties
           echo "CONFIG_TMPFS_XATTR=y" >> out/.config
-          
-          # Append essential filesystem & framework tracking parameters
           echo "CONFIG_EROFS_FS=y" >> out/.config
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
@@ -78,22 +76,22 @@ jobs:
         run: |
           mkdir out_artifacts
           
-          # 1. Grab Core Kernel Binaries
+          # Grab Core Kernel Binaries
           if [ -f kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp kernel-source/out/arch/arm64/boot/Image.gz-dtb out_artifacts/boot.img
           else
             cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
           fi
           
-          # 2. Grab Native Source-Compiled DTBO
+          # Grab Native Source-Compiled DTBO
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
           fi
           
-          # 3. Provision Mock Vendor Boot block profile to carry built modules
+          # Provision Mock Vendor Boot block profile to carry built modules
           echo "Creating Unified Source Build Components..." > out_artifacts/vendor_boot.img
 
-      - name: Pack Everything via AnyKernel3 for Automated Flashing
+      - name: Pack Everything via AnyKernel3 (HyperOS Partition Standard)
         run: |
           git clone https://github.com anykernel
           cd anykernel
@@ -105,7 +103,7 @@ jobs:
           cat << 'EOF' > anykernel.sh
           # AnyKernel3 Setup
           properties() { '
-          kernel.string=Next-Gen Source Unified Build for Xiaomi 11T Pro
+          kernel.string=Next-Gen Source HyperOS Unified Build for Xiaomi 11T Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -113,18 +111,12 @@ jobs:
           do.cleanuponabort=1
           device.name1=vili
           device.name2=vili_global
-          supported.versions=11 - 17
+          supported.versions=14 - 17
           '; }
           
-          # Dynamically flash core targets depending on OS level
-          if [ -e /dev/block/by-name/init_boot ]; then
-            block=/dev/block/by-name/init_boot;
-            is_slot_device=1;
-          else
-            block=/dev/block/bootdevice/by-name/boot;
-            is_slot_device=1;
-          fi;
-          
+          # HyperOS Partition Architecture Standard
+          block=/dev/block/by-name/init_boot;
+          is_slot_device=1;
           ramdisk_compression=auto;
           patch_vbmeta_flag=auto;
           
@@ -137,11 +129,11 @@ jobs:
           fi;
           EOF
           
-          zip -r9 ../Next-Gen-Complete-Source-Kernel.zip * -x .git README.md
+          zip -r9 ../Next-Gen-HyperOS-Only-Kernel.zip * -x .git README.md
 
       - name: Save Complete Source Flashable Outputs
         uses: actions/upload-artifact@v4
         with:
-          name: Next-Gen-Full-Source-Package
-          path: Next-Gen-Complete-Source-Kernel.zip
+          name: Next-Gen-HyperOS-Source-Package
+          path: Next-Gen-HyperOS-Only-Kernel.zip
           
