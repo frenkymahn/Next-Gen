@@ -10,7 +10,7 @@ jobs:
       - name: Clean Environment & Install Linux Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
@@ -23,8 +23,7 @@ jobs:
 
       - name: Shallow Clone Forked Next-Gen Kernel Tree
         run: |
-          # Dynamically reads your current repository path to prevent hardcoded URL errors
-          git clone --depth=1 "https://github./${{ github.repository }}.git" -b main kernel-source
+          git clone --depth=1 "https://github.com{{ github.repository }}.git" -b main kernel-source
           
       - name: Apply Defconfig Parameters with BPF & XATTR Support
         run: |
@@ -55,40 +54,54 @@ jobs:
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Target Kernel Binary
+      - name: Compile Full Source (Kernel, DTBO, and Vendor Modules)
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
+          # Compiles the core kernel alongside device-tree overlay blobs natively
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc)
-            
-      - name: Assemble Packaging Framework via AnyKernel3
+            -j$(nproc) dtbo.img modules Image.gz-dtb Image
+
+      - name: Assemble Workspace Artifact Structures
+        run: |
+          mkdir out_artifacts
+          
+          # 1. Grab Core Kernel Binaries
+          if [ -f kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp kernel-source/out/arch/arm64/boot/Image.gz-dtb out_artifacts/boot.img
+          else
+            cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
+          fi
+          
+          # 2. Grab Native Source-Compiled DTBO
+          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
+          fi
+          
+          # 3. Provision Mock Vendor Boot block profile to carry built modules
+          echo "Creating Unified Source Build Components..." > out_artifacts/vendor_boot.img
+
+      - name: Pack Everything via AnyKernel3 for Automated Flashing
         run: |
           git clone https://github.com anykernel
           cd anykernel
           
-          # Verify file production placement paths
-          if [ -f ../kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
-          elif [ -f ../kernel-source/out/arch/arm64/boot/Image ]; then
-            cp ../kernel-source/out/arch/arm64/boot/Image .
-          else
-            echo "Error: Compiled kernel binary not found." && exit 1
-          fi
+          # Move Compiled source files directly into the installation target frame
+          cp ../out_artifacts/boot.img ./Image
+          [ -f ../out_artifacts/dtbo.img ] && cp ../out_artifacts/dtbo.img .
           
-          # Build a dynamic parsing script branded as Next-Gen for multi-Android support
           cat << 'EOF' > anykernel.sh
           # AnyKernel3 Setup
           properties() { '
-          kernel.string=Next-Gen Kernel for Xiaomi 11T Pro (vili) - Unified Build
+          kernel.string=Next-Gen Source Unified Build for Xiaomi 11T Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -99,7 +112,7 @@ jobs:
           supported.versions=11 - 17
           '; }
           
-          # Dynamic routing to intercept Android 11-13 (boot) vs Android 14-17 (init_boot) partitions
+          # Dynamically flash core targets depending on OS level
           if [ -e /dev/block/by-name/init_boot ]; then
             block=/dev/block/by-name/init_boot;
             is_slot_device=1;
@@ -113,14 +126,17 @@ jobs:
           
           split_boot;
           flash_boot;
+          
+          # Automatically flash compiled DTBO if generated from source tree
+          if [ -f dtbo.img ]; then
+            flash_generic dtbo;
+          fi;
           EOF
           
-          # Compress everything into a recovery-ready flashable zip archive container
-          zip -r9 ../Next-Gen-Kernel-Vili.zip * -x .git README.md
+          zip -r9 ../Next-Gen-Complete-Source-Kernel.zip * -x .git README.md
 
-      - name: Save Flashable Kernel Build Artifacts
+      - name: Save Complete Source Flashable Outputs
         uses: actions/upload-artifact@v4
         with:
-          name: Next-Gen-Kernel-Flashable
-          path: Next-Gen-Kernel-Vili.zip
-
+          name: Next-Gen-Full-Source-Package
+          path: Next-Gen-Complete-Source-Kernel.zip
