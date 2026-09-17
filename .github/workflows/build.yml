@@ -10,12 +10,15 @@ jobs:
       - name: Clean Environment & Install Linux Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Downloading stable AOSP Clang toolchain directly without failing fallbacks
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_host_linux-x86_clang-r416183b.git clang
+          # Downloading Clang toolchain safely via wget archive to completely avoid git clone authentication or URL truncation issues
+          mkdir -p clang
+          wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r487747c.tar.gz || wget -O clang.tar.gz https://gitlab.com/LeLex09/aarch64-linux-android-droid-clang/-/raw/main/clang.tar.gz
+          tar -C clang -xzf clang.tar.gz || true
+          rm -f clang.tar.gz
           echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Checkout Device Kernel Tree
