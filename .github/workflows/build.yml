@@ -12,36 +12,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache
 
-      - name: Fetch and Extract Target AOSP Clang Toolchain
+      - name: Fetch Target AOSP Clang Toolchain
         run: |
-          mkdir clang
-          cd clang
-          wget https://googlesource.com
-          tar -zxf clang-r530567.tar.gz
-          echo "$(pwd)/bin" >> $GITHUB_PATH
-          cd ..
+          # Pulls down a clean, pre-built AOSP Clang host module from GitHub mirroring r530567
+          git clone --depth=1 https://github.com clang
+          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
       - name: Shallow Clone Forked Next-Gen Kernel Tree
         run: |
           git clone --depth=1 https://github.com -b main kernel-source
           
-      - name: Apply Defconfig Parameters for HyperOS & MIUI
+      - name: Apply Defconfig Parameters with BPF & XATTR Support
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Initialize the base configuration framework
+          # Initialize baseline configuration parameters
           make O=out vili_defconfig
           
           # Inject the custom local version name directly into the build configurations
           sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-Next-Gen"/g' out/.config || echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> out/.config
           
-          # Append essential framework parameters directly into the compilation manifest
+          # Inject core eBPF framework rules for Android 14-17
+          echo "CONFIG_BPF=y" >> out/.config
+          echo "CONFIG_BPF_SYSCALL=y" >> out/.config
+          echo "CONFIG_BPF_JIT=y" >> out/.config
+          echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> out/.config
+          echo "CONFIG_CGROUP_BPF=y" >> out/.config
+          echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> out/.config
+          
+          # Inject requested Tmpfs Extended Attributes configuration flag
+          echo "CONFIG_TMPFS_XATTR=y" >> out/.config
+          
+          # Append essential filesystem & framework tracking parameters
           echo "CONFIG_EROFS_FS=y" >> out/.config
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
-          echo "CONFIG_CGROUP_BPF=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
       - name: Compile Target Kernel Binary
@@ -64,7 +71,7 @@ jobs:
           git clone https://github.com anykernel
           cd anykernel
           
-          # Locate and copy the generated binary output
+          # Verify file production placement paths
           if [ -f ../kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp ../kernel-source/out/arch/arm64/boot/Image.gz-dtb .
           elif [ -f ../kernel-source/out/arch/arm64/boot/Image ]; then
