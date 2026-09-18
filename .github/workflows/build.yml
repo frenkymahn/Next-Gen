@@ -53,34 +53,35 @@ jobs:
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Full Source (Kernel and Device Tree Blobs)
+      - name: Compile Full Source (Kernel Image and Modules)
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Compiles core kernel and targets natively for MIUI/HyperOS environment
+          # Compiles core kernel Image and modules successfully without missing target errors
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image.gz-dtb Image dtbs
+            -j$(nproc) modules Image dtbs
 
       - name: Assemble Workspace Artifact Structures
         run: |
           mkdir out_artifacts
           
-          # 1. Grab Core Kernel Binaries
-          if [ -f kernel-source/out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/Image.gz-dtb out_artifacts/boot.img
-          else
+          # Grab Core Uncompressed Kernel Binary (Image)
+          if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
             cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
+          else
+            echo "Error: Kernel Image not found!"
+            exit 1
           fi
           
-          # 2. Grab compiled DTBO if generated in output tree
+          # Grab compiled DTBO if generated in output tree
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
           fi
