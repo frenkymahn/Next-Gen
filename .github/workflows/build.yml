@@ -10,11 +10,10 @@ jobs:
       - name: Clean Environment & Install Linux Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget python3
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
-          # Downloading Clang toolchain safely via wget archive to completely avoid git clone authentication or URL truncation issues
           mkdir -p clang
           wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r487747c.tar.gz || wget -O clang.tar.gz https://gitlab.com/LeLex09/aarch64-linux-android-droid-clang/-/raw/main/clang.tar.gz
           tar -C clang -xzf clang.tar.gz || true
@@ -27,7 +26,7 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Apply Defconfig Parameters with BPF & XATTR Support
+      - name: Apply Defconfig Parameters with BPF & HyperOS XATTR Support
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -40,7 +39,7 @@ jobs:
           # Inject the custom local version name directly into the build configurations
           sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-Next-Gen"/g' out/.config || echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> out/.config
           
-          # Inject core eBPF framework rules for Android 14-17
+          # Inject core eBPF framework rules for Android 11-17
           echo "CONFIG_BPF=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_BPF_JIT=y" >> out/.config
@@ -48,29 +47,27 @@ jobs:
           echo "CONFIG_CGROUP_BPF=y" >> out/.config
           echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> out/.config
           
-          # Inject requested Tmpfs Extended Attributes configuration flag
+          # Inject mandatory HyperOS/MIUI filesystem & security tracking parameters
           echo "CONFIG_TMPFS_XATTR=y" >> out/.config
-          
-          # Append essential filesystem & framework tracking parameters
           echo "CONFIG_EROFS_FS=y" >> out/.config
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Full Source (Kernel, DTBO, and Vendor Modules)
+      - name: Compile Full Source (Kernel and Device Tree Blobs)
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Compiles the core kernel alongside device-tree overlay blobs natively
+          # Compiles core kernel and targets natively for MIUI/HyperOS environment
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) dtbo.img modules Image.gz-dtb Image
+            -j$(nproc) modules Image.gz-dtb Image dtbs
 
       - name: Assemble Workspace Artifact Structures
         run: |
@@ -83,15 +80,14 @@ jobs:
             cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
           fi
           
-          # 2. Grab Native Source-Compiled DTBO
+          # 2. Grab compiled DTBO if generated in output tree
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
           fi
           
-          # 3. Provision Mock Vendor Boot block profile to carry built modules
-          echo "Creating Unified Source Build Components..." > out_artifacts/vendor_boot.img
+          echo "HyperOS Compatible Binaries Prepared..." > out_artifacts/status.txt
 
-      - name: Pack Everything via AnyKernel3 for Automated Flashing
+      - name: Pack Everything via AnyKernel3 for HyperOS/MIUI Flashing
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           cd anykernel
@@ -101,9 +97,9 @@ jobs:
           [ -f ../out_artifacts/dtbo.img ] && cp ../out_artifacts/dtbo.img .
           
           cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Setup
+          # AnyKernel3 Setup for HyperOS & MIUI (Android 11 - 17)
           properties() { '
-          kernel.string=Next-Gen Source Unified Build for Xiaomi 11T Pro
+          kernel.string=Next-Gen HyperOS/MIUI Unified Build for Xiaomi 11T Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -114,7 +110,7 @@ jobs:
           supported.versions=11 - 17
           '; }
           
-          # Dynamically flash core targets depending on OS level
+          # Dynamic partition standard matching HyperOS/MIUI architecture
           if [ -e /dev/block/by-name/init_boot ]; then
             block=/dev/block/by-name/init_boot;
             is_slot_device=1;
@@ -129,17 +125,17 @@ jobs:
           split_boot;
           flash_boot;
           
-          # Automatically flash compiled DTBO if generated from source tree
+          # Automatically flash compiled DTBO to perfectly match HyperOS vendor tree
           if [ -f dtbo.img ]; then
             flash_generic dtbo;
           fi;
           EOF
           
-          zip -r9 ../Next-Gen-Complete-Source-Kernel.zip * -x .git README.md
+          zip -r9 ../Next-Gen-HyperOS-MIUI-Kernel.zip * -x .git README.md
 
-      - name: Save Complete Source Flashable Outputs
+      - name: Save HyperOS/MIUI Flashable Outputs
         uses: actions/upload-artifact@v4
         with:
-          name: Next-Gen-Full-Source-Package
-          path: Next-Gen-Complete-Source-Kernel.zip
+          name: Next-Gen-HyperOS-MIUI-Package
+          path: Next-Gen-HyperOS-MIUI-Kernel.zip
           
