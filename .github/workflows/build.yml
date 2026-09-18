@@ -1,7 +1,7 @@
-name: Build Xiaomi 11T Pro Custom Kernel
+name: Build Xiaomi 11T Pro HyperOS Kernel (Slot A)
 
 on:
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
   build-kernel:
@@ -26,41 +26,44 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Apply Defconfig Parameters with BPF & HyperOS XATTR Support
+      - name: Apply HyperOS Defconfig Parameters & Clean Build
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
+          # Clean old build cache
+          make O=out clean || true
+          rm -rf out
+          
           # Initialize baseline configuration parameters
           make O=out vili_defconfig
           
-          # Inject the custom local version name directly into the build configurations
-          sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-Next-Gen"/g' out/.config || echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> out/.config
+          # Force set local version and strict HyperOS boot properties
+          sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-HyperOS-Vili"/g' out/.config || echo 'CONFIG_LOCALVERSION="-HyperOS-Vili"' >> out/.config
+          sed -i 's/CONFIG_CMDLINE_FROM_BOOTLOADER=y/# CONFIG_CMDLINE_FROM_BOOTLOADER is not set/g' out/.config
+          echo "CONFIG_CMDLINE_EXTEND=y" >> out/.config
           
-          # Inject core eBPF framework rules for Android 11-17
+          # HyperOS specific essential filesystem & binder flags
           echo "CONFIG_BPF=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_BPF_JIT=y" >> out/.config
           echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> out/.config
           echo "CONFIG_CGROUP_BPF=y" >> out/.config
           echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> out/.config
-          
-          # Inject mandatory HyperOS/MIUI filesystem & security tracking parameters
           echo "CONFIG_TMPFS_XATTR=y" >> out/.config
           echo "CONFIG_EROFS_FS=y" >> out/.config
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Full Source (Kernel Image and Modules)
+      - name: Compile HyperOS Kernel Image and Modules
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Compiles core kernel Image and modules successfully without missing target errors
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -73,7 +76,6 @@ jobs:
         run: |
           mkdir out_artifacts
           
-          # Grab Core Uncompressed Kernel Binary (Image)
           if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
             cp kernel-source/out/arch/arm64/boot/Image out_artifacts/boot.img
           else
@@ -81,26 +83,24 @@ jobs:
             exit 1
           fi
           
-          # Grab compiled DTBO if generated in output tree
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-source/out/arch/arm64/boot/dtbo.img out_artifacts/
           fi
           
-          echo "HyperOS Compatible Binaries Prepared..." > out_artifacts/status.txt
+          echo "HyperOS Binaries Ready..." > out_artifacts/status.txt
 
-      - name: Pack Everything via AnyKernel3 for HyperOS/MIUI Flashing
+      - name: Pack via AnyKernel3 (Forced Slot A Target)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           cd anykernel
           
-          # Move Compiled source files directly into the installation target frame
           cp ../out_artifacts/boot.img ./Image
           [ -f ../out_artifacts/dtbo.img ] && cp ../out_artifacts/dtbo.img .
           
           cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Setup for HyperOS & MIUI (Android 11 - 17)
+          # AnyKernel3 Setup for HyperOS (Xiaomi 11T Pro - vili) - Forced Slot A Flashing
           properties() { '
-          kernel.string=Next-Gen HyperOS/MIUI Unified Build for Xiaomi 11T Pro
+          kernel.string=HyperOS Slot-A Exclusive Build for Xiaomi 11T Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -111,32 +111,38 @@ jobs:
           supported.versions=11 - 17
           '; }
           
-          # Dynamic partition standard matching HyperOS/MIUI architecture
-          if [ -e /dev/block/by-name/init_boot ]; then
-            block=/dev/block/by-name/init_boot;
-            is_slot_device=1;
-          else
-            block=/dev/block/bootdevice/by-name/boot;
-            is_slot_device=1;
-          fi;
+          # Forcefully target Slot A partitions explicitly
+          block=/dev/block/bootdevice/by-name/boot_a;
+          is_slot_device=0;
           
           ramdisk_compression=auto;
           patch_vbmeta_flag=auto;
           
-          split_boot;
-          flash_boot;
+          # Flash boot to Slot A directly
+          if [ -e /dev/block/bootdevice/by-name/boot_a ]; then
+            flash_raw /dev/block/bootdevice/by-name/boot_a Image;
+          else
+            block=boot;
+            is_slot_device=1;
+            SLOT=_a;
+            split_boot;
+            flash_boot;
+          fi;
           
-          # Automatically flash compiled DTBO to perfectly match HyperOS vendor tree
+          # Flash dtbo to Slot A directly if present
           if [ -f dtbo.img ]; then
-            flash_generic dtbo;
+            if [ -e /dev/block/bootdevice/by-name/dtbo_a ]; then
+              flash_raw /dev/block/bootdevice/by-name/dtbo_a dtbo.img;
+            else
+              flash_generic dtbo;
+            fi;
           fi;
           EOF
           
-          zip -r9 ../Next-Gen-HyperOS-MIUI-Kernel.zip * -x .git README.md
+          zip -r9 ../HyperOS-Vili-Kernel-SlotA.zip * -x .git README.md
 
-      - name: Save HyperOS/MIUI Flashable Outputs
+      - name: Upload HyperOS Kernel Package
         uses: actions/upload-artifact@v4
         with:
-          name: Next-Gen-HyperOS-MIUI-Package
-          path: Next-Gen-HyperOS-MIUI-Kernel.zip
-          
+          name: HyperOS-Vili-Kernel-SlotA
+          path: HyperOS-Vili-Kernel-SlotA.zip
