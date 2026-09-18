@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Safe HyperOS Kernel Package
+name: Build Xiaomi 11T Pro Fixed Boot.img
 
 on:
   workflow_dispatch:
@@ -53,7 +53,7 @@ jobs:
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Kernel Image and DTBO
+      - name: Compile Kernel Image Safely
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -66,30 +66,20 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image dtbs dtbo.img
+            -j$(nproc) modules Image
 
-      - name: Prepare Clean Binaries
-        run: |
-          mkdir -p out_binaries
-          if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
-            cp kernel-source/out/arch/arm64/boot/Image out_binaries/boot.img
-          fi
-          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel-source/out/arch/arm64/boot/dtbo.img out_binaries/
-          fi
-
-      - name: Pack via AnyKernel3 for Safe Flashing
+      - name: Pack via AnyKernel3 Targeting Boot Partition Only
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           cd anykernel
           
-          cp ../out_binaries/boot.img ./Image
-          [ -f ../out_binaries/dtbo.img ] && cp ../out_binaries/dtbo.img .
+          # Move compiled Image
+          cp ../kernel-source/out/arch/arm64/boot/Image ./Image
           
           cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Safe Setup for Xiaomi 11T Pro (vili)
+          # AnyKernel3 Boot Partition Only Flash Script for Xiaomi 11T Pro (vili)
           properties() { '
-          kernel.string=HyperOS Safe Custom Build for Xiaomi 11T Pro
+          kernel.string=HyperOS Boot-Only Build for Xiaomi 11T Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -105,19 +95,15 @@ jobs:
           ramdisk_compression=auto;
           patch_vbmeta_flag=auto;
           
+          # Force split and flash specifically to boot partition
           split_boot;
           flash_boot;
-          
-          if [ -f dtbo.img ]; then
-            flash_generic dtbo;
-          fi;
           EOF
           
-          zip -r9 ../Xiaomi-11T-Pro-HyperOS-Safe-Kernel.zip * -x .git README.md
+          zip -r9 ../Xiaomi-11T-Pro-Boot-Only.zip * -x .git README.md
 
-      - name: Upload Safe Flashable Package
+      - name: Upload Boot-Only Package
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-HyperOS-Safe-Kernel
-          path: Xiaomi-11T-Pro-HyperOS-Safe-Kernel.zip
-
+          name: Xiaomi-11T-Pro-Boot-Only
+          path: Xiaomi-11T-Pro-Boot-Only.zip
