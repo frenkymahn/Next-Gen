@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Full Tri-Image Package
+name: Build Xiaomi 11T Pro Safe HyperOS Kernel Package
 
 on:
   workflow_dispatch:
@@ -7,10 +7,10 @@ jobs:
   build-kernel:
     runs-on: ubuntu-latest
     steps:
-      - name: Clean Environment & Install Linux Dependencies
+      - name: Clean Environment & Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget python3 python3-pip android-tools-fsutils
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget python3 python3-pip
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
@@ -53,7 +53,7 @@ jobs:
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile HyperOS Kernel Image, DTBO and Modules
+      - name: Compile Kernel Image and DTBO
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -68,32 +68,56 @@ jobs:
             LLVM_IAS=1 \
             -j$(nproc) modules Image dtbs dtbo.img
 
-      - name: Assemble Tri-Image Package (boot, dtbo, vendor_boot)
+      - name: Prepare Clean Binaries
         run: |
-          mkdir -p final_images
-          
-          # 1. Copy Compiled Kernel Image as boot.img structure
+          mkdir -p out_binaries
           if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
-            cp kernel-source/out/arch/arm64/boot/Image final_images/boot.img
+            cp kernel-source/out/arch/arm64/boot/Image out_binaries/boot.img
           fi
-          
-          # 2. Copy Compiled DTBO
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel-source/out/arch/arm64/boot/dtbo.img final_images/
+            cp kernel-source/out/arch/arm64/boot/dtbo.img out_binaries/
           fi
-          
-          # 3. Handle vendor_boot structure mapping for Xiaomi 11T Pro
-          # (Note: vendor_boot requires device specific base ramdisk. We create a placeholder or template structure)
-          touch final_images/vendor_boot.img
-          echo "Place your device stock vendor_boot.img here if repack is needed, or use the generated base." > final_images/README.txt
-          
-          cd final_images
-          zip -r9 ../Xiaomi-11T-Pro-Tri-Image-Package.zip *
-          cd ..
 
-      - name: Upload Complete Tri-Image Artifact
+      - name: Pack via AnyKernel3 for Safe Flashing
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          cd anykernel
+          
+          cp ../out_binaries/boot.img ./Image
+          [ -f ../out_binaries/dtbo.img ] && cp ../out_binaries/dtbo.img .
+          
+          cat << 'EOF' > anykernel.sh
+          # AnyKernel3 Safe Setup for Xiaomi 11T Pro (vili)
+          properties() { '
+          kernel.string=HyperOS Safe Custom Build for Xiaomi 11T Pro
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=1
+          device.name1=vili
+          device.name2=vili_global
+          supported.versions=11 - 17
+          '; }
+          
+          block=boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          split_boot;
+          flash_boot;
+          
+          if [ -f dtbo.img ]; then
+            flash_generic dtbo;
+          fi;
+          EOF
+          
+          zip -r9 ../Xiaomi-11T-Pro-HyperOS-Safe-Kernel.zip * -x .git README.md
+
+      - name: Upload Safe Flashable Package
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-Tri-Image-Package
-          path: Xiaomi-11T-Pro-Tri-Image-Package.zip
+          name: Xiaomi-11T-Pro-HyperOS-Safe-Kernel
+          path: Xiaomi-11T-Pro-HyperOS-Safe-Kernel.zip
 
