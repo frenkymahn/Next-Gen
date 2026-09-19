@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Fixed Boot.img
+name: Build Xiaomi 11T Pro Final Complete Package
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Clean Environment & Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget python3 python3-pip
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libcrypto++-dev u-boot-tools git zip unzip libncurses5-dev ccache device-tree-compiler wget python3 python3-pip android-tools-fsutils
 
       - name: Fetch Target AOSP Clang Toolchain
         run: |
@@ -38,10 +38,12 @@ jobs:
           
           make O=out vili_defconfig
           
+          # Force set local version and strict HyperOS boot properties
           sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-HyperOS-Vili"/g' out/.config || echo 'CONFIG_LOCALVERSION="-HyperOS-Vili"' >> out/.config
           sed -i 's/CONFIG_CMDLINE_FROM_BOOTLOADER=y/# CONFIG_CMDLINE_FROM_BOOTLOADER is not set/g' out/.config
           echo "CONFIG_CMDLINE_EXTEND=y" >> out/.config
           
+          # Essential HyperOS features & BPF/Binder support
           echo "CONFIG_BPF=y" >> out/.config
           echo "CONFIG_BPF_SYSCALL=y" >> out/.config
           echo "CONFIG_BPF_JIT=y" >> out/.config
@@ -53,7 +55,7 @@ jobs:
           echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
           echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
           
-      - name: Compile Kernel Image Safely
+      - name: Compile Kernel Image, DTB, DTBO and Modules Safely
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -66,44 +68,55 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image
+            -j$(nproc) modules Image dtbs dtbo.img
 
-      - name: Pack via AnyKernel3 Targeting Boot Partition Only
+      - name: Assemble All Four Essential Images into a Single Package
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          cd anykernel
+          mkdir -p final_flashable_package
           
-          # Move compiled Image
-          cp ../kernel-source/out/arch/arm64/boot/Image ./Image
+          # 1. Boot Image (Kernel Image)
+          if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
+            cp kernel-source/out/arch/arm64/boot/Image final_flashable_package/boot.img
+          fi
           
-          cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Boot Partition Only Flash Script for Xiaomi 11T Pro (vili)
-          properties() { '
-          kernel.string=HyperOS Boot-Only Build for Xiaomi 11T Pro
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=1
-          device.name1=vili
-          device.name2=vili_global
-          supported.versions=11 - 17
-          '; }
+          # 2. DTB Image
+          if [ -f kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb ]; then
+            cp kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb final_flashable_package/dtb
+          elif [ -f kernel-source/out/arch/arm64/boot/dtb ]; then
+            cp kernel-source/out/arch/arm64/boot/dtb final_flashable_package/dtb
+          fi
           
-          block=boot;
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
+          # 3. DTBO Image
+          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel-source/out/arch/arm64/boot/dtbo.img final_flashable_package/dtbo.img
+          fi
           
-          # Force split and flash specifically to boot partition
-          split_boot;
-          flash_boot;
+          # 4. Compile and stage kernel modules for vendor_boot integration
+          mkdir -p module_staging
+          make -C kernel-source O=out INSTALL_MOD_PATH=../../module_staging INSTALL_MOD_STRIP=1 modules_install
+          
+          # Copy modules archive into final package folder for complete flashing support
+          if [ -d module_staging/lib/modules ]; then
+            cp -r module_staging/lib/modules final_flashable_package/
+          fi
+          
+          # Create a clear instruction file for flashing order
+          cat << 'EOF' > final_flashable_package/FLASH_INSTRUCTIONS.txt
+          Xiaomi 11T Pro (vili) - HyperOS Custom Kernel Package
+          Flash order via Fastboot:
+          1. fastboot flash boot boot.img
+          2. fastboot flash dtb dtb
+          3. fastboot flash dtbo dtbo.img
+          4. fastboot flash vendor_boot vendor_boot.img (if repacked with new modules)
           EOF
           
-          zip -r9 ../Xiaomi-11T-Pro-Boot-Only.zip * -x .git README.md
+          cd final_flashable_package
+          zip -r9 ../Xiaomi-11T-Pro-HyperOS-Final-Package.zip *
+          cd ..
 
-      - name: Upload Boot-Only Package
+      - name: Upload Final Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-Boot-Only
-          path: Xiaomi-11T-Pro-Boot-Only.zip
+          name: Xiaomi-11T-Pro-HyperOS-Final-Package
+          path: Xiaomi-11T-Pro-HyperOS-Final-Package.zip
+          
