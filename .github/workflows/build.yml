@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro All-in-One Flashable Zip
+name: Build Xiaomi 11T Pro Kernel with DTBO & Modules
 
 on:
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Initialize Defconfig and Compile All Targets
+      - name: Initialize Defconfig and Compile Core Targets with DTBO
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -38,15 +38,16 @@ jobs:
           
           make O=out vili_defconfig
           
+          # Compile Image, dtbo.img and modules safely
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image dtbs dtbo.img
+            -j$(nproc) modules Image dtbo.img
 
-      - name: Stage Compiled Binaries and Modules
+      - name: Stage Compiled Binaries, DTBO and Modules
         run: |
           mkdir -p compiled_output
           
@@ -55,19 +56,12 @@ jobs:
             cp kernel-source/out/arch/arm64/boot/Image compiled_output/Image
           fi
           
-          # 2. DTB
-          if [ -f kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb compiled_output/dtb
-          elif [ -f kernel-source/out/arch/arm64/boot/dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/dtb compiled_output/dtb
-          fi
-          
-          # 3. DTBO
+          # 2. DTBO Image
           if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel-source/out/arch/arm64/boot/dtbo.img compiled_output/dtbo.img
           fi
           
-          # 4. Modules Staging
+          # 3. Modules Staging
           mkdir -p module_staging
           make -C kernel-source O=out INSTALL_MOD_PATH=../../module_staging INSTALL_MOD_STRIP=1 modules_install
 
@@ -78,8 +72,9 @@ jobs:
           
           # Copy binaries into AnyKernel structure
           cp ../compiled_output/Image ./Image
-          [ -f ../compiled_output/dtb ] && cp ../compiled_output/dtb .
-          [ -f ../compiled_output/dtbo.img ] && cp ../compiled_output/dtbo.img .
+          if [ -f ../compiled_output/dtbo.img ]; then
+            cp ../compiled_output/dtbo.img ./dtbo.img
+          fi
           
           # Copy modules if generated
           if [ -d ../module_staging/lib/modules ]; then
@@ -87,11 +82,11 @@ jobs:
             cp -r ../module_staging/lib/modules/* ./modules/system/lib/modules/ 2>/dev/null || true
           fi
           
-          # Custom AnyKernel script to flash boot, dtb, dtbo and modules to Slot A explicitly
+          # Custom AnyKernel script to flash boot, dtbo and modules explicitly to Slot A
           cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Framework for Xiaomi 11T Pro (vili) - All-in-One Flashing
+          # AnyKernel3 Framework for Xiaomi 11T Pro (vili) - Boot & DTBO Flashing
           properties() { '
-          kernel.string=Xiaomi 11T Pro HyperOS All-in-One Custom Kernel
+          kernel.string=Xiaomi 11T Pro HyperOS Custom Kernel with DTBO
           do.devicecheck=1
           do.modules=1
           do.systemless=1
@@ -111,27 +106,21 @@ jobs:
           split_boot;
           flash_boot;
           
-          # Flash DTB if present in zip
-          if [ -f dtb ]; then
-            ui_print "Flashing Device Tree (DTB)...";
-            flash_raw /dev/block/bootdevice/by-name/dtb_a dtb;
-          fi;
-          
-          # Flash DTBO if present in zip
+          # Flash DTBO to Slot A if present in zip
           if [ -f dtbo.img ]; then
-            ui_print "Flashing DTBO Partition...";
-            flash_raw /dev/block/bootdevice/by-name/dtbo_a dtbo.img;
+            block=dtbo;
+            flash_generic dtbo.img;
           fi;
           
           # Install modules
           di_modules;
           EOF
           
-          zip -r9 ../Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel.zip * -x .git README.md
+          zip -r9 ../Xiaomi-11T-Pro-HyperOS-Kernel-DTBO.zip * -x .git README.md
 
-      - name: Upload All-in-One Zip Artifact
+      - name: Upload Zip Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel
-          path: Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel.zip
+          name: Xiaomi-11T-Pro-HyperOS-Kernel-DTBO
+          path: Xiaomi-11T-Pro-HyperOS-Kernel-DTBO.zip
           
