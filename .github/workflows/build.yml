@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Final Complete Package
+name: Build Xiaomi 11T Pro Clean Kernel Package
 
 on:
   workflow_dispatch:
@@ -26,72 +26,38 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Apply HyperOS Defconfig Parameters & Clean Build
+      - name: Initialize Defconfig and Compile Kernel Image
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
+          # Clean old build
           make O=out clean || true
           rm -rf out
           
+          # Use source default configuration directly without modifications
           make O=out vili_defconfig
           
-          # Force set local version and strict HyperOS boot properties
-          sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-HyperOS-Vili"/g' out/.config || echo 'CONFIG_LOCALVERSION="-HyperOS-Vili"' >> out/.config
-          sed -i 's/CONFIG_CMDLINE_FROM_BOOTLOADER=y/# CONFIG_CMDLINE_FROM_BOOTLOADER is not set/g' out/.config
-          echo "CONFIG_CMDLINE_EXTEND=y" >> out/.config
-          
-          # Essential HyperOS features & BPF/Binder support
-          echo "CONFIG_BPF=y" >> out/.config
-          echo "CONFIG_BPF_SYSCALL=y" >> out/.config
-          echo "CONFIG_BPF_JIT=y" >> out/.config
-          echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> out/.config
-          echo "CONFIG_CGROUP_BPF=y" >> out/.config
-          echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> out/.config
-          echo "CONFIG_TMPFS_XATTR=y" >> out/.config
-          echo "CONFIG_EROFS_FS=y" >> out/.config
-          echo "CONFIG_EROFS_FS_ZIP=y" >> out/.config
-          echo "CONFIG_ANDROID_BINDERFS=y" >> out/.config
-          
-      - name: Compile Kernel Image, DTB, DTBO and Modules Safely
-        run: |
-          cd kernel-source
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export HEADER_ARCH=arm64
-          
+          # Compile core Image and modules safely
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image dtbs dtbo.img
+            -j$(nproc) modules Image
 
-      - name: Assemble All Four Essential Images into a Single Package
+      - name: Assemble Final Package
         run: |
           mkdir -p final_flashable_package
           
-          # 1. Boot Image (Kernel Image)
           if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
             cp kernel-source/out/arch/arm64/boot/Image final_flashable_package/boot.img
           fi
           
-          # 2. DTB Image
-          if [ -f kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb final_flashable_package/dtb
-          elif [ -f kernel-source/out/arch/arm64/boot/dtb ]; then
-            cp kernel-source/out/arch/arm64/boot/dtb final_flashable_package/dtb
-          fi
-          
-          # 3. DTBO Image
-          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel-source/out/arch/arm64/boot/dtbo.img final_flashable_package/dtbo.img
-          fi
-          
-          # 4. Compile and stage kernel modules for vendor integration
+          # Staging compiled modules
           mkdir -p module_staging
           make -C kernel-source O=out INSTALL_MOD_PATH=../../module_staging INSTALL_MOD_STRIP=1 modules_install
           
@@ -99,21 +65,12 @@ jobs:
             cp -r module_staging/lib/modules final_flashable_package/
           fi
           
-          cat << 'EOF' > final_flashable_package/FLASH_INSTRUCTIONS.txt
-          Xiaomi 11T Pro (vili) - HyperOS Custom Kernel Package
-          Flash order via Fastboot:
-          1. fastboot flash boot boot.img
-          2. fastboot flash dtb dtb
-          3. fastboot flash dtbo dtbo.img
-          EOF
-          
           cd final_flashable_package
-          zip -r9 ../Xiaomi-11T-Pro-HyperOS-Final-Package.zip *
+          zip -r9 ../Xiaomi-11T-Pro-Clean-Package.zip *
           cd ..
 
       - name: Upload Final Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-HyperOS-Final-Package
-          path: Xiaomi-11T-Pro-HyperOS-Final-Package.zip
-          
+          name: Xiaomi-11T-Pro-Clean-Package
+          path: Xiaomi-11T-Pro-Clean-Package.zip
