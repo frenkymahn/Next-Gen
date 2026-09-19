@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Clean Kernel Package
+name: Build Xiaomi 11T Pro All-in-One Flashable Zip
 
 on:
   workflow_dispatch:
@@ -26,51 +26,112 @@ jobs:
           path: kernel-source
           fetch-depth: 1
           
-      - name: Initialize Defconfig and Compile Kernel Image
+      - name: Initialize Defconfig and Compile All Targets
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
           
-          # Clean old build
           make O=out clean || true
           rm -rf out
           
-          # Use source default configuration directly without modifications
           make O=out vili_defconfig
           
-          # Compile core Image and modules safely
           make O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 \
             LLVM_IAS=1 \
-            -j$(nproc) modules Image
+            -j$(nproc) modules Image dtbs dtbo.img
 
-      - name: Assemble Final Package
+      - name: Stage Compiled Binaries and Modules
         run: |
-          mkdir -p final_flashable_package
+          mkdir -p compiled_output
           
+          # 1. Kernel Image (boot.img)
           if [ -f kernel-source/out/arch/arm64/boot/Image ]; then
-            cp kernel-source/out/arch/arm64/boot/Image final_flashable_package/boot.img
+            cp kernel-source/out/arch/arm64/boot/Image compiled_output/Image
           fi
           
-          # Staging compiled modules
+          # 2. DTB
+          if [ -f kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb ]; then
+            cp kernel-source/out/arch/arm64/boot/dts/qcom/vili.dtb compiled_output/dtb
+          elif [ -f kernel-source/out/arch/arm64/boot/dtb ]; then
+            cp kernel-source/out/arch/arm64/boot/dtb compiled_output/dtb
+          fi
+          
+          # 3. DTBO
+          if [ -f kernel-source/out/arch/arm64/boot/dtbo.img ]; then
+            cp kernel-source/out/arch/arm64/boot/dtbo.img compiled_output/dtbo.img
+          fi
+          
+          # 4. Modules Staging
           mkdir -p module_staging
           make -C kernel-source O=out INSTALL_MOD_PATH=../../module_staging INSTALL_MOD_STRIP=1 modules_install
+
+      - name: Pack Everything into AnyKernel3 Zip
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          cd anykernel
           
-          if [ -d module_staging/lib/modules ]; then
-            cp -r module_staging/lib/modules final_flashable_package/
+          # Copy binaries into AnyKernel structure
+          cp ../compiled_output/Image ./Image
+          [ -f ../compiled_output/dtb ] && cp ../compiled_output/dtb .
+          [ -f ../compiled_output/dtbo.img ] && cp ../compiled_output/dtbo.img .
+          
+          # Copy modules if generated
+          if [ -d ../module_staging/lib/modules ]; then
+            mkdir -p ./modules/system/lib/modules
+            cp -r ../module_staging/lib/modules/* ./modules/system/lib/modules/ 2>/dev/null || true
           fi
           
-          cd final_flashable_package
-          zip -r9 ../Xiaomi-11T-Pro-Clean-Package.zip *
-          cd ..
+          # Custom AnyKernel script to flash boot, dtb, dtbo and modules to Slot A explicitly
+          cat << 'EOF' > anykernel.sh
+          # AnyKernel3 Framework for Xiaomi 11T Pro (vili) - All-in-One Flashing
+          properties() { '
+          kernel.string=Xiaomi 11T Pro HyperOS All-in-One Custom Kernel
+          do.devicecheck=1
+          do.modules=1
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=1
+          device.name1=vili
+          device.name2=vili_global
+          supported.versions=11 - 17
+          '; }
+          
+          block=boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          # Flash Boot Image to Slot A
+          split_boot;
+          flash_boot;
+          
+          # Flash DTB if present in zip
+          if [ -f dtb ]; then
+            ui_print "Flashing Device Tree (DTB)...";
+            flash_raw /dev/block/bootdevice/by-name/dtb_a dtb;
+          fi;
+          
+          # Flash DTBO if present in zip
+          if [ -f dtbo.img ]; then
+            ui_print "Flashing DTBO Partition...";
+            flash_raw /dev/block/bootdevice/by-name/dtbo_a dtbo.img;
+          fi;
+          
+          # Install modules
+          di_modules;
+          EOF
+          
+          zip -r9 ../Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel.zip * -x .git README.md
 
-      - name: Upload Final Package Artifact
+      - name: Upload All-in-One Zip Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-Clean-Package
-          path: Xiaomi-11T-Pro-Clean-Package.zip
+          name: Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel
+          path: Xiaomi-11T-Pro-HyperOS-AllInOne-Kernel.zip
+          
