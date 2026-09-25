@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install Build Dependencies
@@ -23,35 +23,17 @@ jobs:
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone --depth=1 https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git kernel
-
-      - name: Configure Defconfig & Apply Custom Options
-        run: |
-          cd kernel
-          DEFCONFIG="arch/arm64/configs/vili_user_defconfig"
-          
-          # OverlayFS & Extended Attributes
-          echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
-          echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
-          
-          # Custom Local Version
-          if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG"; then
-            sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-Next-Gen"/g' "$DEFCONFIG"
-          else
-            echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> "$DEFCONFIG"
-          fi
-          echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
+          git clone --depth=1 https://github.com/frenkymahn/Next-Gen.git kernel
 
       - name: Run Compilation Process
         run: |
           cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           
-          # Disable -Werror via KCFLAGS so minor warnings do not halt compilation
-          MAKE_PARAMS="ARCH=arm64 SUBARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS=-Wno-error"
+          BUILD_FLAGS="ARCH=arm64 SUBARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error"
           
-          make O=out $MAKE_PARAMS vili_user_defconfig
-          make -j$(nproc --all) O=out $MAKE_PARAMS
+          make O=out $BUILD_FLAGS vili_defconfig
+          make -j$(nproc --all) O=out $BUILD_FLAGS
 
       - name: Package with AnyKernel3
         run: |
@@ -60,7 +42,7 @@ jobs:
           
           if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
             cp kernel/out/arch/arm64/boot/Image.gz anykernel/
-          else
+          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
             cp kernel/out/arch/arm64/boot/Image anykernel/
           fi
           
