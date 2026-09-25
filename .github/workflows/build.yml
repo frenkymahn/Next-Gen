@@ -18,13 +18,10 @@ jobs:
 
       - name: Fetch Compiler Toolchain (AOSP Clang r450784d)
         run: |
-          git clone --depth=1 --filter=blob:none --sparse https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang-repo
-          cd clang-repo
-          git sparse-checkout set clang-r450784d
-          cd ..
-          mkdir -p clang
-          cp -r clang-repo/clang-r450784d/* clang/
-          rm -rf clang-repo
+          mkdir clang
+          wget -qO clang.tar.gz "url?id=82/+archive/refs/tags/android-14.0.0_r1/clang-r450784d.tar.gz"
+          tar -xzf clang.tar.gz -C clang
+          rm clang.tar.gz
 
       - name: Fetch Kernel Source Code
         run: |
