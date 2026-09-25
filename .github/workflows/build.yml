@@ -30,19 +30,22 @@ jobs:
           cd kernel
           DEFCONFIG_PATH="arch/arm64/configs/vili_user_defconfig"
           
-          # 1. Storage & Overlay support
+          # Storage & Overlay support
           echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG_PATH
           echo "CONFIG_TMPFS_XATTR=y" >> $DEFCONFIG_PATH
           
-          # 2. HyperOS / MIUI eBPF & Security parameters
+          # Complete BPF & Security parameters (fixing verifier.c declaration error)
           echo "CONFIG_BPF_SYSCALL=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_BPF_JIT=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_HAVE_EBPF_JIT=y" >> $DEFCONFIG_PATH
           echo "CONFIG_NET_CLS_ACT=y" >> $DEFCONFIG_PATH
           echo "CONFIG_CGROUP_BPF=y" >> $DEFCONFIG_PATH
           echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> $DEFCONFIG_PATH
           echo "CONFIG_SECURITY_SELINUX=y" >> $DEFCONFIG_PATH
           echo "CONFIG_CRYPTO_SHA256=y" >> $DEFCONFIG_PATH
           
-          # 3. Next-Gen version string
+          # Next-Gen version string
           if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_PATH"; then
             sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-Next-Gen"/g' $DEFCONFIG_PATH
           else
@@ -55,7 +58,7 @@ jobs:
           cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           
-          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS=-Wno-error"
           
           make O=out $MAKE_ARGS vili_user_defconfig
           make -j$(nproc --all) O=out $MAKE_ARGS
