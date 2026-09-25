@@ -18,12 +18,12 @@ jobs:
 
       - name: Fetch Compiler Toolchain (Proton Clang)
         run: |
-          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone https://github.com/frenkymahn/Next-Gen_ViLi_kernel.git --depth=1 kernel
+          git clone --depth=1 https://github.com/frenkymahn/Next-Gen_ViLi_kernel.git kernel
 
       - name: Inject Configurations & HyperOS Fixes
         run: |
@@ -67,7 +67,7 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
-          git clone url?id=1osm0sis/AnyKernel3.git anykernel
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
           
           # Select matching output binary target
