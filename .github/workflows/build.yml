@@ -18,15 +18,12 @@ jobs:
 
       - name: Fetch Compiler Toolchain (AOSP Clang r450784d)
         run: |
-          mkdir clang
-          wget -qO clang.tar.gz "url?id=82/+archive/refs/tags/android-14.0.0_r1/clang-r450784d.tar.gz"
-          tar -xzf clang.tar.gz -C clang
-          rm clang.tar.gz
+          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r450784d.git clang
 
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone [Next-Gen_ViLi_kernel](https://github.com/frenkymahn/Next-Gen_ViLi_kernel.git) --depth=1 kernel
+          git clone https://github.com/frenkymahn/Next-Gen_ViLi_kernel.git --depth=1 kernel
 
       - name: Inject Configurations & HyperOS Fixes
         run: |
@@ -77,7 +74,7 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
-          git clone [AnyKernel3](https://github.com/osm0sis/AnyKernel3.git) anykernel
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
           
           # Select matching output binary target
