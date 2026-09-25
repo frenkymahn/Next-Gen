@@ -25,43 +25,33 @@ jobs:
           rm -rf kernel
           git clone --depth=1 https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git kernel
 
-      - name: Inject Configurations & HyperOS Fixes
+      - name: Configure Defconfig & Apply Custom Options
         run: |
           cd kernel
-          DEFCONFIG_PATH="arch/arm64/configs/vili_user_defconfig"
+          DEFCONFIG="arch/arm64/configs/vili_user_defconfig"
           
-          # Storage & Overlay support
-          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_TMPFS_XATTR=y" >> $DEFCONFIG_PATH
+          # OverlayFS & Extended Attributes
+          echo "CONFIG_OVERLAY_FS=y" >> "$DEFCONFIG"
+          echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
           
-          # Complete BPF & Security parameters (fixing verifier.c declaration error)
-          echo "CONFIG_BPF_SYSCALL=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_BPF_JIT=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_BPF_JIT_ALWAYS_ON=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_HAVE_EBPF_JIT=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_NET_CLS_ACT=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_CGROUP_BPF=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_NETFILTER_XT_MATCH_BPF=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_SECURITY_SELINUX=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_CRYPTO_SHA256=y" >> $DEFCONFIG_PATH
-          
-          # Next-Gen version string
-          if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG_PATH"; then
-            sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-Next-Gen"/g' $DEFCONFIG_PATH
+          # Custom Local Version
+          if grep -q "CONFIG_LOCALVERSION=" "$DEFCONFIG"; then
+            sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-Next-Gen"/g' "$DEFCONFIG"
           else
-            echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> $DEFCONFIG_PATH
+            echo 'CONFIG_LOCALVERSION="-Next-Gen"' >> "$DEFCONFIG"
           fi
-          echo "CONFIG_LOCALVERSION_AUTO=n" >> $DEFCONFIG_PATH
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> "$DEFCONFIG"
 
       - name: Run Compilation Process
         run: |
           cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           
-          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS=-Wno-error"
+          # Disable -Werror via KCFLAGS so minor warnings do not halt compilation
+          MAKE_PARAMS="ARCH=arm64 SUBARCH=arm64 CC=clang HOSTCC=gcc HOSTCXX=g++ CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS=-Wno-error"
           
-          make O=out $MAKE_ARGS vili_user_defconfig
-          make -j$(nproc --all) O=out $MAKE_ARGS
+          make O=out $MAKE_PARAMS vili_user_defconfig
+          make -j$(nproc --all) O=out $MAKE_PARAMS
 
       - name: Package with AnyKernel3
         run: |
