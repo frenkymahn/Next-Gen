@@ -493,11 +493,11 @@ LINUXINCLUDE    := \
 		$(USERINCLUDE)
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
-KBUILD_CFLAGS   := -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs \
-		   -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE \
-		   -Werror=implicit-function-declaration -Werror=implicit-int \
-		   -Werror=return-type -Wno-format-security \
-		   -std=gnu89
+KBUILD_CFLAGS   := -Wall -Wundef -Wno-trigraphs \
+                   -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE \
+                   -Wno-implicit-function-declaration -Wno-implicit-int \
+                   -Wno-return-type -Wno-format-security -Wno-error \
+                   -std=gnu89
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -600,9 +600,9 @@ CLANG_FLAGS	+= -no-integrated-as
 GCC_TOOLCHAIN_DIR := $(dir $(shell which $(CROSS_COMPILE)elfedit))
 CLANG_FLAGS	+= --prefix=$(GCC_TOOLCHAIN_DIR)$(notdir $(CROSS_COMPILE))
 endif
-CLANG_FLAGS	+= -Werror=unknown-warning-option
-KBUILD_CPPFLAGS	+= $(CLANG_FLAGS)
-export CLANG_FLAGS
+
+CLANG_FLAGS += -Wno-error
+KBUILD_CPPFLAGS += $(CLANG_FLAGS)
 endif
 
 ifdef config-build
