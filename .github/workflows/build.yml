@@ -18,12 +18,12 @@ jobs:
 
       - name: Fetch Compiler Toolchain (Proton Clang)
         run: |
-          git clone --depth=1 [kdrag0n/proton-clang](https://github.com/kdrag0n/proton-clang.git) clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone --depth=1 [android_kernel_xiaomi_sm8350](https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git) kernel
+          git clone --depth=1 https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git kernel
 
       - name: Inject Configurations & HyperOS Fixes
         run: |
@@ -69,7 +69,7 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
-          git clone [AnyKernel3](https://github.com/osm0sis/AnyKernel3.git) anykernel
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
           
           # Select matching output binary target
