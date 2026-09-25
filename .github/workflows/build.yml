@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Code
@@ -55,7 +55,7 @@ jobs:
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/clang/bin:/usr/bin:$PATH"
+          export PATH="/usr/bin:$GITHUB_WORKSPACE/clang/bin:$PATH"
           
           export CC=clang
           export HOSTCC=gcc
