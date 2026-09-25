@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Checkout Code
@@ -18,12 +18,12 @@ jobs:
 
       - name: Fetch Compiler Toolchain (Proton Clang)
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 [kdrag0n/proton-clang](https://github.com/kdrag0n/proton-clang.git) clang
 
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone --depth=1 https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git kernel
+          git clone --depth=1 [android_kernel_xiaomi_sm8350](https://github.com/AOSP-for-vili/android_kernel_xiaomi_sm8350.git) kernel
 
       - name: Inject Configurations & HyperOS Fixes
         run: |
@@ -55,19 +55,21 @@ jobs:
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/clang/bin:/usr/bin:$PATH"
           
           export CC=clang
+          export HOSTCC=gcc
+          export HOSTCXX=g++
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
           make O=out vili_user_defconfig
-          make -j$(nproc --all) O=out CC=clang
+          make -j$(nproc --all) O=out CC=clang HOSTCC=gcc HOSTCXX=g++
 
       - name: Package with AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          git clone [AnyKernel3](https://github.com/osm0sis/AnyKernel3.git) anykernel
           rm -rf anykernel/.git
           
           # Select matching output binary target
