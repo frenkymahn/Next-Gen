@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       stock_boot_url:
-        description: "Direct URL to your current working HyperOS boot.img"
-        required: true
+        description: "Direct URL to stock boot.img (Optional)"
+        required: false
         default: ""
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
-          git clone --depth=1 https://github.com/frenkymahn/Next-Gen.git kernel
+          git clone --depth=1 url?id=3.git kernel
 
       - name: Run Compilation Process with Next-Gen Name
         run: |
@@ -50,32 +50,53 @@ jobs:
           make -j$(nproc --all) O=out $BUILD_FLAGS
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
-      - name: Repack Original Boot Image with Next-Gen Kernel Binary
+      - name: Build Output Boot Image
         run: |
-          mkdir -p work_repack output_boot
-          cd work_repack
-
-          # Download MagiskBoot tool
-          wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
-          unzip -p magisk.apk lib/x86_64/libmagiskboot.so > magiskboot
-          chmod +x magiskboot
-
-          # Download your ROM's stock working boot.img
-          curl -sL "${{ github.event.inputs.stock_boot_url }}" -o stock_boot.img
-
-          # Unpack stock boot.img to preserve its ramdisk, dtb and headers
-          ./magiskboot unpack stock_boot.img
-
-          # Replace kernel with the compiled Next-Gen binary
-          if [ -f ../kernel/out/arch/arm64/boot/Image.gz ]; then
-            cp ../kernel/out/arch/arm64/boot/Image.gz kernel
+          mkdir -p output_boot
+          
+          # Find compiled kernel binary
+          if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
+            KERNEL_BIN="kernel/out/arch/arm64/boot/Image.gz"
+          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
+            KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
           else
-            cp ../kernel/out/arch/arm64/boot/Image kernel
+            echo "Kernel compilation failed!"
+            exit 1
           fi
 
-          # Repack into a flashable boot.img
-          ./magiskboot repack stock_boot.img ../output_boot/boot.img
-          cd ..
+          STOCK_URL="${{ github.event.inputs.stock_boot_url }}"
+
+          # If stock URL is provided and valid, repack using magiskboot
+          if [ -n "$STOCK_URL" ]; then
+            mkdir -p work_repack
+            cd work_repack
+            wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
+            unzip -p magisk.apk lib/x86_64/libmagiskboot.so > magiskboot
+            chmod +x magiskboot
+
+            curl -sL "$STOCK_URL" -o stock_boot.img
+            if ./magiskboot unpack stock_boot.img; then
+              cp "../$KERNEL_BIN" kernel
+              ./magiskboot repack stock_boot.img ../output_boot/boot.img
+              cd ..
+            else
+              cd ..
+              STOCK_URL=""
+            fi
+          fi
+
+          # Fallback to mkbootimg if no stock boot was provided
+          if [ ! -f output_boot/boot.img ]; then
+            git clone --depth=1 https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
+            python3 tools/mkbootimg/mkbootimg.py \
+              --kernel "$KERNEL_BIN" \
+              --header_version 3 \
+              --pagesize 4096 \
+              --cmdline "console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 firmware_class.path=/vendor/firmware_mnt/image androidboot.selinux=permissive" \
+              --os_version 14.0.0 \
+              --os_patch_level 2026-05 \
+              -o output_boot/boot.img
+          fi
 
       - name: Upload Next-Gen Boot Image Artifact
         uses: actions/upload-artifact@v4
