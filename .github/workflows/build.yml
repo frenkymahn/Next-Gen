@@ -1,4 +1,4 @@
-name: Build Xiaomi 11T Pro Safe HyperOS Kernel Package
+name: Build Xiaomi 11T Pro Standalone Boot Image
 
 on:
   workflow_dispatch:
@@ -34,85 +34,41 @@ jobs:
           
           make O=out $BUILD_FLAGS vili_defconfig
 
-          # Enforce Permissive mode to prevent bootloop on HyperOS Port ROM
+          # Force Permissive mode to bypass bootloop
           scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
           scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
 
-          # Compile full kernel Image (25-35 minutes)
+          # Compile Kernel Image and DTBs
           make -j$(nproc --all) O=out $BUILD_FLAGS
-          # Compile Device Tree Blobs
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
-      - name: Build DTBO Image & Concatenate DTB
+      - name: Create Standalone boot.img
         run: |
-          mkdir -p tools/libufdt work_images
-          git clone --depth=1 https://android.googlesource.com/platform/system/libufdt tools/libufdt
+          mkdir -p output_boot
+          git clone --depth=1 https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
 
-          find kernel/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > work_images/dtb
-
-          DTBO_FILES=$(find kernel/out/arch/arm64/boot/dts -name "*.dtbo" | sort)
-          if [ -n "$DTBO_FILES" ]; then
-            python3 tools/libufdt/utils/src/mkdtboimg.py create work_images/dtbo.img $DTBO_FILES
-          elif [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel/out/arch/arm64/boot/dtbo.img work_images/dtbo.img
-          fi
-
-      - name: Package with AnyKernel3 (Boot-Only Safe Flash)
-        run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          rm -rf anykernel/.git
-
-          # Verify kernel Image exists
+          # Locate kernel binary
           if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
-            cp kernel/out/arch/arm64/boot/Image.gz anykernel/Image.gz
+            KERNEL_BIN="kernel/out/arch/arm64/boot/Image.gz"
           elif [ -f kernel/out/arch/arm64/boot/Image ]; then
-            cp kernel/out/arch/arm64/boot/Image anykernel/Image
+            KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
           else
-            echo "ERROR: Kernel binary was not created!"
+            echo "ERROR: Kernel binary not found!"
             exit 1
           fi
 
-          [ -f work_images/dtb ] && cp work_images/dtb anykernel/
-          [ -f work_images/dtbo.img ] && cp work_images/dtbo.img anykernel/
+          # Build Xiaomi 11T Pro Header v3 Boot Image
+          python3 tools/mkbootimg/mkbootimg.py \
+            --kernel "$KERNEL_BIN" \
+            --header_version 3 \
+            --pagesize 4096 \
+            --cmdline "console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 firmware_class.path=/vendor/firmware_mnt/image androidboot.selinux=permissive" \
+            --os_version 14.0.0 \
+            --os_patch_level 2026-05 \
+            -o output_boot/boot.img
 
-          cat << 'EOF' > anykernel/anykernel.sh
-          ### AnyKernel3 Ramdisk Mod Script
-          ## osm0sis @ xda-developers
-
-          properties() { '
-          kernel.string=Next-Gen for FrenkyMahn
-          do.devicecheck=0
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=Xiaomi 11T Pro
-          device.name2=milahaina
-          device.name3=vili
-          supported.versions=11.0 - 17.0
-          supported.patchlevels=
-          supported.vendorpatchlevels=
-          '; }
-
-          BLOCK=boot;
-          IS_SLOT_DEVICE=1;
-          RAMDISK_COMPRESSION=auto;
-          PATCH_VBMETA_FLAG=auto;
-
-          . tools/ak3-core.sh && passthrough;
-
-          # Update ONLY boot partition to keep Port ROM vendor display drivers intact
-          dump_boot;
-          write_boot;
-          EOF
-
-          sed -i 's/^[ \t]*//' anykernel/anykernel.sh
-
-          cd anykernel
-          zip -r9 ../Xiaomi-11T-Pro-NextGen-Fixed.zip *
-
-      - name: Upload Output Artifact
+      - name: Upload Boot Image Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-NextGen-Fixed
-          path: Xiaomi-11T-Pro-NextGen-Fixed.zip
+          name: Xiaomi-11T-Pro-Standalone-Boot
+          path: output_boot/boot.img
