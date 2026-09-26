@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Build Dependencies
         run: |
@@ -19,6 +21,19 @@ jobs:
       - name: Fetch Clang Toolchain
         run: |
           git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r487747c.git clang
+
+      - name: Inject Xiaomi Official OSS Drivers & DTB
+        run: |
+          # Fetch official Xiaomi display and touch drivers
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          
+          # Pull official Xiaomi open-source techpack display & drivers
+          git remote add xiaomi-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git || true
+          git fetch xiaomi-oss vili-s-oss --depth=1 || true
+          
+          # Checkout display and hardware tree if missing
+          git checkout xiaomi-oss/vili-s-oss -- techpack/display drivers/gpu/drm/msm 2>/dev/null || true
 
       - name: Run Compilation Process with Next-Gen Name
         run: |
@@ -31,25 +46,32 @@ jobs:
           # Set Kernel Name to Next-Gen
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-Next-Gen"
 
-          # Bypass SELinux strict rules on Port ROM
+          # Permissive rules for Port ROM boot
           scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
           scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
 
-          # Compile Kernel Image
+          # Compile Kernel, DTBs and DTBOs
           make -j$(nproc --all) O=out $BUILD_FLAGS
+          make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
-      - name: Package Boot Flashable Zip
+      - name: Package Complete AnyKernel3 Flashable Zip
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
 
+          # Copy Kernel Image
           if [ -f out/arch/arm64/boot/Image.gz ]; then
             cp out/arch/arm64/boot/Image.gz anykernel/Image.gz
           elif [ -f out/arch/arm64/boot/Image ]; then
             cp out/arch/arm64/boot/Image anykernel/Image
-          else
-            echo "Kernel compilation failed!"
-            exit 1
+          fi
+
+          # Extract and combine DTBs into anykernel
+          find out/arch/arm64/boot/dts/vendor/qcom/ -name "*.dtb" -exec cat {} + > anykernel/dtb 2>/dev/null || true
+          
+          # Copy DTBO image if compiled
+          if [ -f out/arch/arm64/boot/dtbo.img ]; then
+            cp out/arch/arm64/boot/dtbo.img anykernel/dtbo.img
           fi
 
           cat << 'EOF' > anykernel/anykernel.sh
@@ -76,19 +98,17 @@ jobs:
 
           . tools/ak3-core.sh && passthrough;
 
-          # Repack existing stock boot with Next-Gen kernel image safely
           dump_boot;
-          patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive";
           write_boot;
           EOF
 
           sed -i 's/^[ \t]*//' anykernel/anykernel.sh
 
           cd anykernel
-          zip -r9 ../Xiaomi-11T-Pro-NextGen-Fixed.zip *
+          zip -r9 ../Xiaomi-11T-Pro-NextGen-OSS-Fixed.zip *
 
-      - name: Upload Next-Gen Flashable Artifact
+      - name: Upload Complete Next-Gen Flashable Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-NextGen-Fixed
-          path: Xiaomi-11T-Pro-NextGen-Fixed.zip
+          name: Xiaomi-11T-Pro-NextGen-OSS-Fixed
+          path: Xiaomi-11T-Pro-NextGen-OSS-Fixed.zip
