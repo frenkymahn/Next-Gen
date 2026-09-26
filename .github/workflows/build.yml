@@ -2,15 +2,6 @@ name: Build Xiaomi 11T Pro Safe HyperOS Kernel Package
 
 on:
   workflow_dispatch:
-    inputs:
-      stock_boot_url:
-        description: "Direct URL to stock HyperOS boot.img (Optional: leave blank if only flashing via AnyKernel3)"
-        required: false
-        default: ""
-      stock_vendor_boot_url:
-        description: "Direct URL to stock HyperOS vendor_boot.img (Optional: leave blank if only flashing via AnyKernel3)"
-        required: false
-        default: ""
 
 jobs:
   build:
@@ -42,9 +33,14 @@ jobs:
           BUILD_FLAGS="ARCH=arm64 SUBARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error -Wno-unknown-warning-option -Wno-ignored-optimization-argument"
           
           make O=out $BUILD_FLAGS vili_defconfig
-          # 1. Compile the kernel Image binary
+
+          # HyperOS Port ROM ബൂട്ട് ആവാൻ SELinux Permissive ചേർക്കുന്നു
+          scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
+          scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
+
+          # 1. പൂർണ്ണ കെർണൽ ഇമേജ് കമ്പൈൽ ചെയ്യുന്നു (ഇത് 25-35 മിനിറ്റ് എടുക്കും)
           make -j$(nproc --all) O=out $BUILD_FLAGS
-          # 2. Compile Device Tree Blobs
+          # 2. ഡിസ്പ്ലേ/ഡിവൈസ് ട്രീ ബ്ലോബുകൾ കമ്പൈൽ ചെയ്യുന്നു
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
       - name: Build DTBO Image & Concatenate DTB
@@ -52,10 +48,8 @@ jobs:
           mkdir -p tools/libufdt work_images
           git clone --depth=1 https://android.googlesource.com/platform/system/libufdt tools/libufdt
 
-          # Concatenate DTBs into single dtb
           find kernel/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > work_images/dtb
 
-          # Build dtbo.img
           DTBO_FILES=$(find kernel/out/arch/arm64/boot/dts -name "*.dtbo" | sort)
           if [ -n "$DTBO_FILES" ]; then
             python3 tools/libufdt/utils/src/mkdtboimg.py create work_images/dtbo.img $DTBO_FILES
@@ -63,51 +57,12 @@ jobs:
             cp kernel/out/arch/arm64/boot/dtbo.img work_images/dtbo.img
           fi
 
-      - name: Repack Standalone boot.img and vendor_boot.img
-        run: |
-          if [ -n "${{ github.event.inputs.stock_boot_url }}" ] && [ -n "${{ github.event.inputs.stock_vendor_boot_url }}" ]; then
-            wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
-            unzip -p magisk.apk lib/x86_64/libmagiskboot.so > magiskboot
-            chmod +x magiskboot
-
-            curl -sL "${{ github.event.inputs.stock_boot_url }}" -o stock_boot.img
-            curl -sL "${{ github.event.inputs.stock_vendor_boot_url }}" -o stock_vendor_boot.img
-
-            if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
-              KERNEL_BIN="kernel/out/arch/arm64/boot/Image.gz"
-            else
-              KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
-            fi
-
-            # Repack boot.img
-            mkdir -p work_boot && cd work_boot
-            ../magiskboot unpack ../stock_boot.img
-            cp ../$KERNEL_BIN kernel
-            ../magiskboot repack ../stock_boot.img ../work_images/boot.img
-            cd ..
-
-            # Repack vendor_boot.img
-            mkdir -p work_vendor && cd work_vendor
-            ../magiskboot unpack ../stock_vendor_boot.img
-            [ -f ../work_images/dtb ] && cp ../work_images/dtb dtb
-            if [ -f ramdisk.cpio ]; then
-              mkdir -p rd && cd rd
-              ../../magiskboot cpio ../ramdisk.cpio extract
-              find lib/modules -name "modules.load" -exec sh -c 'echo -n > {}' \;
-              find lib/modules -name "modules.dep" -exec sh -c 'echo -n > {}' \;
-              find . | cpio -H newc -o > ../ramdisk.cpio
-              cd .. && rm -rf rd
-            fi
-            ../magiskboot repack ../stock_vendor_boot.img ../work_images/vendor_boot.img
-            cd ..
-          fi
-
-      - name: Package AnyKernel3 Zip with All Images & DTBs
+      - name: Package with AnyKernel3 (Boot-Only Safe Flash)
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
 
-          # Verify compiled kernel exists
+          # കെർണൽ ഇമേജ് ഉണ്ടെന്ന് ഉറപ്പുവരുത്തുന്നു (ഇല്ലെങ്കിൽ ബിൽഡ് ഫെയിൽ ആകും)
           if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
             cp kernel/out/arch/arm64/boot/Image.gz anykernel/Image.gz
           elif [ -f kernel/out/arch/arm64/boot/Image ]; then
@@ -119,8 +74,6 @@ jobs:
 
           [ -f work_images/dtb ] && cp work_images/dtb anykernel/
           [ -f work_images/dtbo.img ] && cp work_images/dtbo.img anykernel/
-          [ -f work_images/boot.img ] && cp work_images/boot.img anykernel/
-          [ -f work_images/vendor_boot.img ] && cp work_images/vendor_boot.img anykernel/
 
           cat << 'EOF' > anykernel/anykernel.sh
           ### AnyKernel3 Ramdisk Mod Script
@@ -133,69 +86,33 @@ jobs:
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
-          device.name1=vili
-          device.name2=vili_in
-          device.name3=vili_eea
-          device.name4=vili_global
-          device.name5=lahaina
+          device.name1=Xiaomi 11T Pro
+          device.name2=milahaina
+          device.name3=vili
           supported.versions=11 - 17
           supported.patchlevels=
           supported.vendorpatchlevels=
           '; }
 
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
 
-          if [ -e /dev/block/bootdevice/by-name/boot ]; then
-            block=/dev/block/bootdevice/by-name/boot;
-          elif [ -e /dev/block/by-name/boot ]; then
-            block=/dev/block/by-name/boot;
-          else
-            block=auto;
-          fi;
+          . tools/ak3-core.sh && passthrough;
 
-          . tools/ak3-core.sh;
-
-          # 1. Boot Partition Flash
-          split_boot;
-          flash_boot;
-
-          # 2. Vendor Boot Partition Flash & Clean Modules
-          if [ -e /dev/block/bootdevice/by-name/vendor_boot ]; then
-            block=/dev/block/bootdevice/by-name/vendor_boot;
-          elif [ -e /dev/block/by-name/vendor_boot ]; then
-            block=/dev/block/by-name/vendor_boot;
-          fi;
-
-          reset_ak;
-          split_boot;
-          unpack_ramdisk;
-
-          if [ -d "$home/ramdisk/lib/modules" ]; then
-            find $home/ramdisk/lib/modules -name "modules.load" -exec sh -c 'echo -n > {}' \;
-            find $home/ramdisk/lib/modules -name "modules.dep" -exec sh -c 'echo -n > {}' \;
-          fi;
-
-          repack_ramdisk;
-          flash_boot;
-
-          # 3. Flash DTBO
-          if [ -f $home/dtbo.img ]; then
-            flash_dtbo;
-          fi;
+          # പോർട്ട് റോമിന്റെ വെണ്ടർ ഡ്രൈവറുകൾ കേടാവാതിരിക്കാൻ boot പാർട്ടീഷൻ മാത്രം അപ്ഡേറ്റ് ചെയ്യുന്നു
+          dump_boot;
+          write_boot;
           EOF
 
           sed -i 's/^[ \t]*//' anykernel/anykernel.sh
 
           cd anykernel
-          zip -r9 ../Xiaomi-11T-Pro-NextGen-AllInOne.zip *
-          cd ..
+          zip -r9 ../Xiaomi-11T-Pro-NextGen-Fixed.zip *
 
-      - name: Upload Output Artifacts
+      - name: Upload Output Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-Complete-Package
-          path: |
-            Xiaomi-11T-Pro-NextGen-AllInOne.zip
-            work_images/*
+          name: Xiaomi-11T-Pro-NextGen-Fixed
+          path: Xiaomi-11T-Pro-NextGen-Fixed.zip
