@@ -34,13 +34,13 @@ jobs:
           
           make O=out $BUILD_FLAGS vili_defconfig
 
-          # HyperOS Port ROM ബൂട്ട് ആവാൻ SELinux Permissive ചേർക്കുന്നു
+          # Enforce Permissive mode to prevent bootloop on HyperOS Port ROM
           scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
           scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
 
-          # 1. പൂർണ്ണ കെർണൽ ഇമേജ് കമ്പൈൽ ചെയ്യുന്നു (ഇത് 25-35 മിനിറ്റ് എടുക്കും)
+          # Compile full kernel Image (25-35 minutes)
           make -j$(nproc --all) O=out $BUILD_FLAGS
-          # 2. ഡിസ്പ്ലേ/ഡിവൈസ് ട്രീ ബ്ലോബുകൾ കമ്പൈൽ ചെയ്യുന്നു
+          # Compile Device Tree Blobs
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
       - name: Build DTBO Image & Concatenate DTB
@@ -62,7 +62,7 @@ jobs:
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
 
-          # കെർണൽ ഇമേജ് ഉണ്ടെന്ന് ഉറപ്പുവരുത്തുന്നു (ഇല്ലെങ്കിൽ ബിൽഡ് ഫെയിൽ ആകും)
+          # Verify kernel Image exists
           if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
             cp kernel/out/arch/arm64/boot/Image.gz anykernel/Image.gz
           elif [ -f kernel/out/arch/arm64/boot/Image ]; then
@@ -89,7 +89,7 @@ jobs:
           device.name1=Xiaomi 11T Pro
           device.name2=milahaina
           device.name3=vili
-          supported.versions=11 - 17
+          supported.versions=11.0 - 17.0
           supported.patchlevels=
           supported.vendorpatchlevels=
           '; }
@@ -101,7 +101,7 @@ jobs:
 
           . tools/ak3-core.sh && passthrough;
 
-          # പോർട്ട് റോമിന്റെ വെണ്ടർ ഡ്രൈവറുകൾ കേടാവാതിരിക്കാൻ boot പാർട്ടീഷൻ മാത്രം അപ്ഡേറ്റ് ചെയ്യുന്നു
+          # Update ONLY boot partition to keep Port ROM vendor display drivers intact
           dump_boot;
           write_boot;
           EOF
