@@ -1,7 +1,12 @@
-name: Build Xiaomi 11T Pro Standalone Boot Image
+name: Build Xiaomi 11T Pro Safe Boot Image (Next-Gen)
 
 on:
   workflow_dispatch:
+    inputs:
+      stock_boot_url:
+        description: "Direct URL to your current working HyperOS boot.img"
+        required: true
+        default: ""
 
 jobs:
   build:
@@ -16,16 +21,17 @@ jobs:
           sudo apt update
           sudo apt install -y bc bison build-essential ccache curl flex git gnupg gperf libelf-dev liblz4-tool libncurses5-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip device-tree-compiler
 
-      - name: Fetch Compiler Toolchain (Proton Clang)
+      - name: Fetch Google Official AOSP Clang 17 (Android 14-17 Ready)
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          mkdir -p clang
+          curl -sL https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r487747c.tar.gz | tar -xz -C clang
 
       - name: Fetch Kernel Source Code
         run: |
           rm -rf kernel
           git clone --depth=1 https://github.com/frenkymahn/Next-Gen.git kernel
 
-      - name: Run Compilation Process (Kernel & DTBs)
+      - name: Run Compilation Process with Next-Gen Name
         run: |
           cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
@@ -34,7 +40,10 @@ jobs:
           
           make O=out $BUILD_FLAGS vili_defconfig
 
-          # Force Permissive mode to bypass bootloop
+          # Set Kernel Name to Next-Gen
+          scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-Next-Gen"
+
+          # Bypass SELinux strict rules on Port ROM
           scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
           scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
 
@@ -42,33 +51,35 @@ jobs:
           make -j$(nproc --all) O=out $BUILD_FLAGS
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
-      - name: Create Standalone boot.img
+      - name: Repack Original Boot Image with Next-Gen Kernel Binary
         run: |
-          mkdir -p output_boot
-          git clone --depth=1 https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
+          mkdir -p work_repack output_boot
+          cd work_repack
 
-          # Locate kernel binary
-          if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
-            KERNEL_BIN="kernel/out/arch/arm64/boot/Image.gz"
-          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
-            KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
+          # Download MagiskBoot tool
+          wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
+          unzip -p magisk.apk lib/x86_64/libmagiskboot.so > magiskboot
+          chmod +x magiskboot
+
+          # Download your ROM's stock working boot.img
+          curl -sL "${{ github.event.inputs.stock_boot_url }}" -o stock_boot.img
+
+          # Unpack stock boot.img to preserve its ramdisk, dtb and headers
+          ./magiskboot unpack stock_boot.img
+
+          # Replace kernel with the compiled Next-Gen binary
+          if [ -f ../kernel/out/arch/arm64/boot/Image.gz ]; then
+            cp ../kernel/out/arch/arm64/boot/Image.gz kernel
           else
-            echo "ERROR: Kernel binary not found!"
-            exit 1
+            cp ../kernel/out/arch/arm64/boot/Image kernel
           fi
 
-          # Build Xiaomi 11T Pro Header v3 Boot Image
-          python3 tools/mkbootimg/mkbootimg.py \
-            --kernel "$KERNEL_BIN" \
-            --header_version 3 \
-            --pagesize 4096 \
-            --cmdline "console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 firmware_class.path=/vendor/firmware_mnt/image androidboot.selinux=permissive" \
-            --os_version 14.0.0 \
-            --os_patch_level 2026-05 \
-            -o output_boot/boot.img
+          # Repack into a flashable boot.img
+          ./magiskboot repack stock_boot.img ../output_boot/boot.img
+          cd ..
 
-      - name: Upload Boot Image Artifact
+      - name: Upload Next-Gen Boot Image Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-Standalone-Boot
+          name: Xiaomi-11T-Pro-NextGen-Boot
           path: output_boot/boot.img
