@@ -2,11 +2,6 @@ name: Build Xiaomi 11T Pro Safe Boot Image (Next-Gen)
 
 on:
   workflow_dispatch:
-    inputs:
-      stock_boot_url:
-        description: "Direct URL to stock boot.img (Optional)"
-        required: false
-        default: ""
 
 jobs:
   build:
@@ -40,60 +35,60 @@ jobs:
           scripts/config --file out/.config --enable CONFIG_ALWAYS_PERMISSIVE
           scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_DEVELOP
 
-          # Compile Kernel Image and DTBs
+          # Compile Kernel Image
           make -j$(nproc --all) O=out $BUILD_FLAGS
-          make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
-      - name: Build Output Boot Image
+      - name: Package Boot Flashable Zip
         run: |
-          mkdir -p output_boot
-          
-          # Find compiled kernel binary
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          rm -rf anykernel/.git
+
           if [ -f out/arch/arm64/boot/Image.gz ]; then
-            KERNEL_BIN="out/arch/arm64/boot/Image.gz"
+            cp out/arch/arm64/boot/Image.gz anykernel/Image.gz
           elif [ -f out/arch/arm64/boot/Image ]; then
-            KERNEL_BIN="out/arch/arm64/boot/Image"
+            cp out/arch/arm64/boot/Image anykernel/Image
           else
             echo "Kernel compilation failed!"
             exit 1
           fi
 
-          STOCK_URL="${{ github.event.inputs.stock_boot_url }}"
+          cat << 'EOF' > anykernel/anykernel.sh
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
 
-          # If stock URL is provided and valid, repack using magiskboot
-          if [ -n "$STOCK_URL" ]; then
-            mkdir -p work_repack
-            cd work_repack
-            wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
-            unzip -p magisk.apk lib/x86_64/libmagiskboot.so > magiskboot
-            chmod +x magiskboot
+          properties() { '
+          kernel.string=Next-Gen for FrenkyMahn
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=Xiaomi 11T Pro
+          device.name2=milahaina
+          device.name3=vili
+          supported.versions=11 - 17
+          '; }
 
-            curl -sL "$STOCK_URL" -o stock_boot.img
-            if ./magiskboot unpack stock_boot.img; then
-              cp "../$KERNEL_BIN" kernel
-              ./magiskboot repack stock_boot.img ../output_boot/boot.img
-              cd ..
-            else
-              cd ..
-              STOCK_URL=""
-            fi
-          fi
+          BLOCK=boot;
+          IS_SLOT_DEVICE=1;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
 
-          # Fallback to mkbootimg if no stock boot was provided
-          if [ ! -f output_boot/boot.img ]; then
-            git clone --depth=1 https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
-            python3 tools/mkbootimg/mkbootimg.py \
-              --kernel "$KERNEL_BIN" \
-              --header_version 3 \
-              --pagesize 4096 \
-              --cmdline "console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 firmware_class.path=/vendor/firmware_mnt/image androidboot.selinux=permissive" \
-              --os_version 14.0.0 \
-              --os_patch_level 2026-05 \
-              -o output_boot/boot.img
-          fi
+          . tools/ak3-core.sh && passthrough;
 
-      - name: Upload Next-Gen Boot Image Artifact
+          # Repack existing stock boot with Next-Gen kernel image safely
+          dump_boot;
+          patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive";
+          write_boot;
+          EOF
+
+          sed -i 's/^[ \t]*//' anykernel/anykernel.sh
+
+          cd anykernel
+          zip -r9 ../Xiaomi-11T-Pro-NextGen-Fixed.zip *
+
+      - name: Upload Next-Gen Flashable Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-NextGen-Boot
-          path: output_boot/boot.img
+          name: Xiaomi-11T-Pro-NextGen-Fixed
+          path: Xiaomi-11T-Pro-NextGen-Fixed.zip
