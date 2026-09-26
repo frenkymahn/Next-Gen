@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       stock_boot_url:
-        description: "Direct URL to stock HyperOS boot.img (Optional: leave blank to skip repacking full partition images)"
+        description: "Direct URL to stock HyperOS boot.img (Optional: leave blank if only flashing via AnyKernel3)"
         required: false
         default: ""
       stock_vendor_boot_url:
-        description: "Direct URL to stock HyperOS vendor_boot.img (Optional: leave blank to skip repacking full partition images)"
+        description: "Direct URL to stock HyperOS vendor_boot.img (Optional: leave blank if only flashing via AnyKernel3)"
         required: false
         default: ""
 
@@ -27,7 +27,7 @@ jobs:
 
       - name: Fetch Compiler Toolchain (Proton Clang)
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
 
       - name: Fetch Kernel Source Code
         run: |
@@ -42,6 +42,9 @@ jobs:
           BUILD_FLAGS="ARCH=arm64 SUBARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error -Wno-unknown-warning-option -Wno-ignored-optimization-argument"
           
           make O=out $BUILD_FLAGS vili_defconfig
+          # 1. Compile kernel Image (ensures full ~30MB binary is produced)
+          make -j$(nproc --all) O=out $BUILD_FLAGS
+          # 2. Compile Device Tree Blobs
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
 
       - name: Build DTBO Image & Concatenate DTB
@@ -49,10 +52,10 @@ jobs:
           mkdir -p tools/libufdt work_images
           git clone --depth=1 https://android.googlesource.com/platform/system/libufdt tools/libufdt
 
-          # 1. Combine all compiled dts blobs into dtb
+          # Create unified dtb
           find kernel/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > work_images/dtb
 
-          # 2. Package dtbo.img from all compiled dtbo files
+          # Create dtbo.img
           DTBO_FILES=$(find kernel/out/arch/arm64/boot/dts -name "*.dtbo" | sort)
           if [ -n "$DTBO_FILES" ]; then
             python3 tools/libufdt/utils/src/mkdtboimg.py create work_images/dtbo.img $DTBO_FILES
@@ -76,53 +79,124 @@ jobs:
               KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
             fi
 
-            # Repack boot.img
+            # 1. Repack boot.img with compiled kernel
             mkdir -p work_boot && cd work_boot
             ../magiskboot unpack ../stock_boot.img
             cp ../$KERNEL_BIN kernel
             ../magiskboot repack ../stock_boot.img ../work_images/boot.img
             cd ..
 
-            # Repack vendor_boot.img with new dtb
+            # 2. Repack vendor_boot.img with new DTB and clean modules.load
             mkdir -p work_vendor && cd work_vendor
             ../magiskboot unpack ../stock_vendor_boot.img
             [ -f ../work_images/dtb ] && cp ../work_images/dtb dtb
+            if [ -f ramdisk.cpio ]; then
+              mkdir -p rd && cd rd
+              ../../magiskboot cpio ../ramdisk.cpio extract
+              find lib/modules -name "modules.load" -exec sh -c 'echo -n > {}' \;
+              find lib/modules -name "modules.dep" -exec sh -c 'echo -n > {}' \;
+              find . | cpio -H newc -o > ../ramdisk.cpio
+              cd .. && rm -rf rd
+            fi
             ../magiskboot repack ../stock_vendor_boot.img ../work_images/vendor_boot.img
             cd ..
           fi
 
-      - name: Package Everything into Single AnyKernel3 ZIP
+      - name: Package AnyKernel3 Zip with All Images & DTBs
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           rm -rf anykernel/.git
 
-          # Copy Kernel Image
+          # Verify compiled kernel exists
           if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
-            cp kernel/out/arch/arm64/boot/Image.gz anykernel/
+            cp kernel/out/arch/arm64/boot/Image.gz anykernel/Image.gz
           elif [ -f kernel/out/arch/arm64/boot/Image ]; then
-            cp kernel/out/arch/arm64/boot/Image anykernel/
+            cp kernel/out/arch/arm64/boot/Image anykernel/Image
+          else
+            echo "ERROR: Kernel image not compiled!"
+            exit 1
           fi
 
-          # Copy DTB, DTBO, and repacked partition images into root of zip
+          # Place dtb, dtbo, boot.img, and vendor_boot.img inside zip
           [ -f work_images/dtb ] && cp work_images/dtb anykernel/
           [ -f work_images/dtbo.img ] && cp work_images/dtbo.img anykernel/
           [ -f work_images/boot.img ] && cp work_images/boot.img anykernel/
           [ -f work_images/vendor_boot.img ] && cp work_images/vendor_boot.img anykernel/
 
-          # Configure AnyKernel3 for Xiaomi 11T Pro HyperOS
-          sed -i 's/kernel.string=.*/kernel.string=Next-Gen Kernel for Xiaomi 11T Pro (HyperOS)/g' anykernel/anykernel.sh
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel/anykernel.sh
-          sed -i 's/do.modules=0/do.modules=0/g' anykernel/anykernel.sh
-          sed -i 's/do.cleanup=1/do.cleanup=1/g' anykernel/anykernel.sh
-          sed -i 's/do.cleanuponabort=0/do.cleanuponabort=0/g' anykernel/anykernel.sh
-          sed -i 's/is_slot_device=0/is_slot_device=1/g' anykernel/anykernel.sh
-          sed -i 's|block=/dev/block/by-name/boot;|block=/dev/block/bootdevice/by-name/boot;|g' anykernel/anykernel.sh
+          cat << 'EOF' > anykernel/anykernel.sh
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          properties() { '
+          kernel.string=Next-Gen for FrenkyMahn
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=vili
+          device.name2=vili_in
+          device.name3=vili_eea
+          device.name4=vili_global
+          device.name5=lahaina
+          supported.versions=11 - 17
+          supported.patchlevels=
+          supported.vendorpatchlevels=
+          '; }
+
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+
+          if [ -e /dev/block/bootdevice/by-name/boot ]; then
+            block=/dev/block/bootdevice/by-name/boot;
+          elif [ -e /dev/block/by-name/boot ]; then
+            block=/dev/block/by-name/boot;
+          else
+            block=auto;
+          fi;
+
+          . tools/ak3-core.sh;
+
+          # 1. Boot Partition Flash
+          split_boot;
+          flash_boot;
+
+          # 2. Vendor Boot Partition Flash & Clean Modules
+          if [ -e /dev/block/bootdevice/by-name/vendor_boot ]; then
+            block=/dev/block/bootdevice/by-name/vendor_boot;
+          elif [ -e /dev/block/by-name/vendor_boot ]; then
+            block=/dev/block/by-name/vendor_boot;
+          fi;
+
+          reset_ak;
+          split_boot;
+          unpack_ramdisk;
+
+          if [ -d "$home/ramdisk/lib/modules" ]; then
+            find $home/ramdisk/lib/modules -name "modules.load" -exec sh -c 'echo -n > {}' \;
+            find $home/ramdisk/lib/modules -name "modules.dep" -exec sh -c 'echo -n > {}' \;
+          fi;
+
+          repack_ramdisk;
+          flash_boot;
+
+          # 3. Flash DTBO
+          if [ -f $home/dtbo.img ]; then
+            flash_dtbo;
+          fi;
+          EOF
+
+          sed -i 's/^[ \t]*//' anykernel/anykernel.sh
 
           cd anykernel
           zip -r9 ../Xiaomi-11T-Pro-NextGen-AllInOne.zip *
+          cd ..
 
-      - name: Upload Complete Kernel & Partition Package
+      - name: Upload Output Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-11T-Pro-NextGen-Package
-          path: Xiaomi-11T-Pro-NextGen-AllInOne.zip
+          name: Xiaomi-11T-Pro-Complete-Package
+          path: |
+            Xiaomi-11T-Pro-NextGen-AllInOne.zip
+            work_images/*
