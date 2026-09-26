@@ -25,14 +25,8 @@ jobs:
         run: |
           git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r487747c.git clang
 
-      - name: Fetch Kernel Source Code
-        run: |
-          rm -rf kernel
-          git clone --depth=1 url?id=3.git kernel
-
       - name: Run Compilation Process with Next-Gen Name
         run: |
-          cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           
           BUILD_FLAGS="ARCH=arm64 SUBARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error -Wno-unknown-warning-option -Wno-ignored-optimization-argument"
@@ -55,10 +49,10 @@ jobs:
           mkdir -p output_boot
           
           # Find compiled kernel binary
-          if [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
-            KERNEL_BIN="kernel/out/arch/arm64/boot/Image.gz"
-          elif [ -f kernel/out/arch/arm64/boot/Image ]; then
-            KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
+          if [ -f out/arch/arm64/boot/Image.gz ]; then
+            KERNEL_BIN="out/arch/arm64/boot/Image.gz"
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            KERNEL_BIN="out/arch/arm64/boot/Image"
           else
             echo "Kernel compilation failed!"
             exit 1
