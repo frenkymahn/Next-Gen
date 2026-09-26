@@ -27,7 +27,7 @@ jobs:
 
       - name: Fetch Compiler Toolchain (Proton Clang)
         run: |
-          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: Fetch Kernel Source Code
         run: |
@@ -42,7 +42,7 @@ jobs:
           BUILD_FLAGS="ARCH=arm64 SUBARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error -Wno-unknown-warning-option -Wno-ignored-optimization-argument"
           
           make O=out $BUILD_FLAGS vili_defconfig
-          # 1. Compile kernel Image (ensures full ~30MB binary is produced)
+          # 1. Compile the kernel Image binary
           make -j$(nproc --all) O=out $BUILD_FLAGS
           # 2. Compile Device Tree Blobs
           make -j$(nproc --all) O=out $BUILD_FLAGS dtbs
@@ -52,10 +52,10 @@ jobs:
           mkdir -p tools/libufdt work_images
           git clone --depth=1 https://android.googlesource.com/platform/system/libufdt tools/libufdt
 
-          # Create unified dtb
+          # Concatenate DTBs into single dtb
           find kernel/out/arch/arm64/boot/dts -name "*.dtb" -exec cat {} + > work_images/dtb
 
-          # Create dtbo.img
+          # Build dtbo.img
           DTBO_FILES=$(find kernel/out/arch/arm64/boot/dts -name "*.dtbo" | sort)
           if [ -n "$DTBO_FILES" ]; then
             python3 tools/libufdt/utils/src/mkdtboimg.py create work_images/dtbo.img $DTBO_FILES
@@ -79,14 +79,14 @@ jobs:
               KERNEL_BIN="kernel/out/arch/arm64/boot/Image"
             fi
 
-            # 1. Repack boot.img with compiled kernel
+            # Repack boot.img
             mkdir -p work_boot && cd work_boot
             ../magiskboot unpack ../stock_boot.img
             cp ../$KERNEL_BIN kernel
             ../magiskboot repack ../stock_boot.img ../work_images/boot.img
             cd ..
 
-            # 2. Repack vendor_boot.img with new DTB and clean modules.load
+            # Repack vendor_boot.img
             mkdir -p work_vendor && cd work_vendor
             ../magiskboot unpack ../stock_vendor_boot.img
             [ -f ../work_images/dtb ] && cp ../work_images/dtb dtb
@@ -113,11 +113,10 @@ jobs:
           elif [ -f kernel/out/arch/arm64/boot/Image ]; then
             cp kernel/out/arch/arm64/boot/Image anykernel/Image
           else
-            echo "ERROR: Kernel image not compiled!"
+            echo "ERROR: Kernel binary was not created!"
             exit 1
           fi
 
-          # Place dtb, dtbo, boot.img, and vendor_boot.img inside zip
           [ -f work_images/dtb ] && cp work_images/dtb anykernel/
           [ -f work_images/dtbo.img ] && cp work_images/dtbo.img anykernel/
           [ -f work_images/boot.img ] && cp work_images/boot.img anykernel/
